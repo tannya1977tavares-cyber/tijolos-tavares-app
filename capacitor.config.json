@@ -1,0 +1,14 @@
+{
+  "appId": "br.com.tijolostavares.app",
+  "appName": "Tijolos Tavares",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#974142"
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_tijolo",
+      "iconColor": "#974142"
+    }
+  }
+}

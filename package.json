@@ -1,0 +1,22 @@
+{
+  "name": "tijolos-tavares-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "App de pedidos, cargas e agenda da Tijolos Tavares",
+  "scripts": {
+    "libs": "mkdir -p www/lib && cp node_modules/@supabase/supabase-js/dist/umd/supabase.js www/lib/ && cp node_modules/jspdf/dist/jspdf.umd.min.js www/lib/ && (cp node_modules/@capacitor/core/dist/capacitor.js www/lib/ || touch www/lib/capacitor.js)"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/camera": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/filesystem": "^7.0.0",
+    "@capacitor/local-notifications": "^7.0.0",
+    "@capacitor/share": "^7.0.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "jspdf": "2.5.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.0.0"
+  }
+}
