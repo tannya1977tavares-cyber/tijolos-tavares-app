@@ -23,16 +23,26 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      - name: Testar o relatório
+        run: node testes/relatorio.test.js
+
       - name: Instalar dependências
         run: npm install
 
       - name: Copiar bibliotecas pro app
-        run: npm run libs
+        run: |
+          npm run libs
+          echo "window.VERSAO_APP = ${{ github.run_number }};" > www/versao.js
+
+      - name: Assinatura fixa (pra atualizar por cima sem desinstalar)
+        run: |
+          mkdir -p ~/.android
+          cp assinatura/tijolos.keystore ~/.android/debug.keystore
 
       - name: Criar projeto Android
         run: |
           npx cap add android
-          python3 scripts/preparar-android.py
+          VERSAO=${{ github.run_number }} python3 scripts/preparar-android.py
           npx cap sync android
 
       - name: Montar APK

@@ -5,7 +5,7 @@ raiz = pathlib.Path(__file__).resolve().parent.parent
 app = raiz / "android" / "app" / "src" / "main"
 pacote = app / "java" / "br" / "com" / "tijolostavares" / "app"
 pacote.mkdir(parents=True, exist_ok=True)
-for nome in ("AgendaCelularPlugin.java", "MainActivity.java"):
+for nome in ("AgendaCelularPlugin.java", "AtualizadorPlugin.java", "MainActivity.java"):
     shutil.copy(raiz / "native" / nome, pacote / nome)
 
 manifesto = app / "AndroidManifest.xml"
@@ -14,6 +14,7 @@ perms = [
     "android.permission.READ_CALENDAR",
     "android.permission.WRITE_CALENDAR",
     "android.permission.POST_NOTIFICATIONS",
+    "android.permission.REQUEST_INSTALL_PACKAGES",
 ]
 extra = "".join(f'    <uses-permission android:name="{p}" />\n' for p in perms if p not in txt)
 txt = txt.replace("</manifest>", extra + "</manifest>")
@@ -26,4 +27,12 @@ for pasta in (raiz / "android-res").iterdir():
     for arq in pasta.iterdir():
         shutil.copy(arq, destino / arq.name)
 
-print("Android preparado")
+# número da versão: cresce a cada APK, pra o Android aceitar atualizar por cima
+import os
+n = os.environ.get("VERSAO", "1")
+gradle = raiz / "android" / "app" / "build.gradle"
+g = gradle.read_text(encoding="utf-8")
+g = re.sub(r"versionCode \d+", f"versionCode {n}", g)
+g = re.sub(r'versionName "[^"]*"', f'versionName "1.0.{n}"', g)
+gradle.write_text(g, encoding="utf-8")
+print("Android preparado, versão 1.0." + n)
