@@ -2,6 +2,7 @@
 -- Não muda nenhuma tabela: é um campo novo no JSON de cada entrega. Entrega sem ele continua igual.
 -- Este arquivo só ajusta a planilha (aba "entregas") pra o custo do tijolo usar a quantidade carregada
 -- quando ela existir, e mostrar a coluna nova. Pode rodar mais de uma vez.
+-- Já aplicado no Supabase em 17/11/2026.
 CREATE OR REPLACE FUNCTION public.planilha_dados(t text, aba text)
  RETURNS jsonb
  LANGUAGE plpgsql
