@@ -85,6 +85,9 @@ function custoAtual(fid, m) {
 }
 function minimo(m, r) { const x = D.cfg.minimos[m]; return x && x[r - 1] != null ? x[r - 1] : null; }
 const freteMil = e => med(e.medida).fiadas >= 100 ? cid(e.cidade).f108 : cid(e.cidade).f72;
+/* quantidade comprada no fornecedor: a "quantidade carregada" se foi preenchida, senão a do pedido */
+const temCarregado = e => !!(e.carregado && e.carregado.mil != null && isFinite(+e.carregado.mil));
+const milCompra = e => temCarregado(e) ? +e.carregado.mil : e.mil;
 
 function calcEntrega(e, c, i) {
   let cm = 0;
@@ -93,7 +96,7 @@ function calcEntrega(e, c, i) {
     if (snap && snap[i] != null && +snap[i] > 0) cm = +snap[i]; else { const k = custoAtual(c.ceramica, e.medida); cm = k ? k.v : 0; }
   }
   const m = med(e.medida), min = minimo(e.medida, cid(e.cidade).r), fiadas = Math.ceil(e.mil * 1000 / m.pf);
-  return { cm, min, fiadas, occ: fiadas / m.fiadas, custo: cm * e.mil, venda: e.preco * e.mil, abaixo: min != null && e.preco < min, fm: e.freteMil != null ? e.freteMil : freteMil(e) };
+  return { cm, min, fiadas, occ: fiadas / m.fiadas, compra: milCompra(e), custo: cm * milCompra(e), venda: e.preco * e.mil, abaixo: min != null && e.preco < min, fm: e.freteMil != null ? e.freteMil : freteMil(e) };
 }
 function grupos(c) { const g = []; c.entregas.forEach((e, i) => { const k = e.cliente || "Sem nome"; let x = g.find(y => y.nome === k); if (!x) { x = { nome: k, idx: [] }; g.push(x); } x.idx.push(i); }); return g; }
 /* frete de um cliente: carga fechada não paga; carga que não fecha paga à parte (se marcado) */
@@ -253,7 +256,7 @@ async function procurarVersao() {
 
 /* ---------- desenho ---------- */
 const main = document.getElementById("main");
-let comp = null, confirmar = null, aviso = "", cadastrando = null, buscaCli = "", fotos = {}, renderPendente = false, editando = null, msgCfg = "";
+let comp = null, confirmar = null, aviso = "", cadastrando = null, buscaCli = "", fotos = {}, renderPendente = false, editando = null, msgCfg = "", carregando = null;
 
 function renderSeguro() {
   const a = document.activeElement;
@@ -298,7 +301,7 @@ function entregaRow(e, c, i, opt) {
   opt = opt || {}; const k = calcEntrega(e, c, i), pag = opt.pag ? pagDe(c, i) : null;
   return '<div class="row"><div style="min-width:0;flex:1"><div class="t">' + esc(e.cliente || "Sem nome") + " · " + esc(e.cidade) + '</div><div class="s">' + esc(e.medida) + " · " + n1(e.mil) + " mil · " + brl(e.preco) + "/mil · " + k.fiadas + " fiadas" + (+e.frete ? " · frete " + brl(e.frete) : "") + "</div>" +
     ((k.abaixo || pag) ? '<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">' + (k.abaixo ? '<span class="chip red">Abaixo do mínimo de ' + brl(k.min) + "</span>" : "") + (pag ? '<span class="chip ' + (pag === "Pago" ? "green" : pag === "Fiado" ? "red" : "amber") + '">' + esc(pag) + "</span>" : "") + "</div>" : "") +
-    (opt.foto ? fotoHtml(c, i) : "") + "</div>" +
+    (opt.carregar ? carregadoHtml(c, i) : "") + (opt.foto ? fotoHtml(c, i) : "") + "</div>" +
     (opt.rm ? '<button class="btn small" data-act="rm" data-i="' + i + '">Remover</button>' : "") + "</div>";
 }
 function freteLinha(c, g) {
@@ -307,6 +310,44 @@ function freteLinha(c, g) {
   if (c.salva) return f.cobrado ? '<span class="chip amber">Frete à parte ' + brl2(f.cobrado) + "</span>" : '<span class="chip">Sem frete</span>';
   const taxa = f.taxas.length === 1 ? n1(f.mil) + " mil × " + brl2(f.taxas[0]) : "conforme cidade e medida";
   return f.on ? '<span class="chip amber">Frete à parte ' + brl2(f.valor) + " (" + taxa + ")</span>" : '<span class="chip">Sem cobrança de frete</span>';
+}
+/* quantidade carregada: o que foi comprado de fato no fornecedor (o resto do pedido veio de fora) */
+const r3 = v => Math.round(v * 1000) / 1000;
+function carrConta(e, cm, mil) {
+  const m = med(e.medida), ok = isFinite(mil) && mil >= 0, pecas = ok ? Math.round(mil * 1000) : 0, fi = ok ? pecas / m.pf : 0, fora = ok ? r3(e.mil - mil) : 0;
+  let h = '<div class="linha-total"><span>Pedido</span><strong>' + n1(e.mil) + " mil · " + Math.ceil(e.mil * 1000 / m.pf) + " fiadas</strong></div>";
+  if (!ok) return h + '<p class="hint">Coloque as fiadas ou os milheiros que você carregou.</p>';
+  h += '<div class="linha-total"><span>Carregado</span><strong>' + n1(r2(fi)) + " fiadas × " + m.pf + " = " + pecas.toLocaleString("pt-BR") + " peças (" + n1(mil) + " mil)</strong></div>";
+  if (fora > 0) h += '<div class="linha-total"><span>Completou com tijolo de fora</span><strong>' + n1(fora) + " mil</strong></div>";
+  if (fora < 0) h += '<p class="warnmsg">Carregou ' + n1(-fora) + " mil a mais que o pedido.</p>";
+  if (ADM()) h += cm > 0 ? '<div class="linha-total"><span>Milheiro na fábrica</span><strong>' + brl2(cm) + '</strong></div><div class="linha-total grande"><span>Pagar na fábrica</span><strong>' + brl2(cm * mil) + "</strong></div>"
+    : '<p class="hint">Esse tijolo não tem preço de custo cadastrado no fornecedor.</p>';
+  return h;
+}
+function carregadoHtml(c, i) {
+  const e = c.entregas[i], k = c.id + "|" + i, cm = calcEntrega(e, c, i).cm, tem = temCarregado(e);
+  if (carregando !== k) {
+    const mil = milCompra(e), fi = Math.round(mil * 1000) / med(e.medida).pf;
+    return '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px">' +
+      (tem ? '<span class="chip brick">Carregado ' + n1(r2(fi)) + " fiadas · " + n1(mil) + " mil" + (ADM() && cm > 0 ? " · fábrica " + brl(cm * mil) : "") + "</span>" : "") +
+      '<button class="btn small" data-act="carr-abrir" data-k="' + esc(k) + '">' + (tem ? "Mudar quantidade carregada" : "Quantidade carregada") + "</button></div>";
+  }
+  const cr = e.carregado || {}, fiV = tem ? numTxt(r2(+cr.mil * 1000 / med(e.medida).pf)) : "", milV = tem ? numTxt(cr.mil) : "";
+  return '<div class="carr"><h3>Quantidade carregada</h3><p class="hint">O que você comprou de fato na ' + esc(forn(c.ceramica).nome) + ". Só isso entra no controle do fornecedor. Se completou com tijolo de outro vendedor, essa parte fica fora. Em branco, vale a quantidade do pedido.</p>" +
+    '<div class="grid2"><div class="field"><label for="cr-fi">Fiadas carregadas</label><input id="cr-fi" data-carr="' + esc(k) + '" inputmode="decimal" value="' + esc(fiV) + '" placeholder="' + Math.ceil(e.mil * 1000 / med(e.medida).pf) + '"></div>' +
+    '<div class="field"><label for="cr-mil">Milheiros</label><input id="cr-mil" data-carr="' + esc(k) + '" inputmode="decimal" value="' + esc(milV) + '" placeholder="' + n1(e.mil) + '"></div></div>' +
+    '<p class="hint">' + esc(e.medida) + ": " + med(e.medida).pf + " peças por fiada.</p>" +
+    '<div id="cr-conta" class="carr-conta">' + carrConta(e, cm, tem ? +cr.mil : NaN) + "</div>" +
+    '<p class="err" id="cr-err"></p><div class="grid2"><button class="btn ghost" data-act="carr-x">Cancelar</button><button class="btn primary" data-act="carr-salvar" data-k="' + esc(k) + '">Salvar</button></div>' +
+    (tem ? '<button class="btn small ghost" data-act="carr-limpar" data-k="' + esc(k) + '">Voltar a usar a quantidade do pedido</button>' : "") + "</div>";
+}
+async function salvarCarregado(k, valor) {
+  const [id, i] = k.split("|"), c = acharCarga(id); if (!c) return false;
+  const ents = copia(c.entregas);
+  if (valor == null) delete ents[+i].carregado; else ents[+i].carregado = valor;
+  const r = await sb.from("cargas").update({ entregas: ents }).eq("id", id);
+  if (r.error) return false;
+  c.entregas = ents; return true;
 }
 function fotoHtml(c, i) {
   const e = c.entregas[i], k = c.id + "|" + i;
@@ -355,7 +396,7 @@ function vPedido() {
       (R.entregas.length ? '<p class="hint">Você tem um pedido na tela. Continuar um orçamento troca o pedido da tela.</p>' : "") + "</section>" : "") +
     '<section class="card"><div class="field"><label for="ceramica">Fornecedor (cerâmica)</label><select id="ceramica">' + optsObj(CAD().fornecedores.map(f => [f.id, f.nome]), R.ceramica) + "</select></div></section>" +
     '<section class="card"><h2>Adicionar entrega</h2>' +
-    '<div class="field"><label for="f-cliente">Cliente</label><input id="f-cliente" list="dl-cli" autocomplete="off" value="' + esc(F.cliente) + '" placeholder="Nome do cliente ou da obra"><datalist id="dl-cli">' + D.clientes.map(c => '<option value="' + esc(c.nome) + '">').join("") + "</datalist></div>" +
+    '<div class="field"><label for="f-cliente">Cliente</label><input id="f-cliente" autocomplete="off" autocapitalize="words" value="' + esc(F.cliente) + '" placeholder="Nome do cliente ou da obra"><div class="sug" id="f-sug" role="listbox" aria-label="Clientes salvos"></div></div>' +
     '<div class="grid2"><div class="field"><label for="f-cidade">Cidade</label><select id="f-cidade">' + opts(CAD().cidades.map(c => c.nome), F.cidade) + "</select></div>" +
     '<div class="field"><label for="f-medida">Medida</label><select id="f-medida">' + opts(CAD().medidas.map(m => m.nome), F.medida) + "</select></div>" +
     '<div class="field"><label for="f-mil">Milheiros</label><input id="f-mil" inputmode="decimal" value="' + esc(F.mil) + '" placeholder="3"></div>' +
@@ -368,6 +409,12 @@ function vPedido() {
       resumoHtml(r) + "<h3>Rota</h3>" + rotaHtml(R, false)
       : '<p class="hint">Adicione a primeira entrega acima. O app calcula as fiadas, o frete e a rota.</p>') + "</section>" +
     '<p class="err" id="p-err"></p><button class="btn primary full" data-act="ir-docs">Próximo: orçamento ou recibo</button>';
+}
+/* sugestões de cliente: só aparecem depois de digitar, no máximo 4, embaixo do campo (sem cobrir o teclado) */
+function sugCli(v) {
+  const q = norm(v); if (!q) return "";
+  const l = D.clientes.filter(c => norm(c.nome).includes(q) && norm(c.nome) !== q).sort((a, b) => (norm(b.nome).startsWith(q) - norm(a.nome).startsWith(q)) || a.nome.localeCompare(b.nome)).slice(0, 4);
+  return l.map(c => '<button type="button" role="option" data-act="sug" data-nome="' + esc(c.nome) + '"><span>' + esc(c.nome) + "</span>" + (c.cidade ? '<span class="s">' + esc(c.cidade) + "</span>" : "") + "</button>").join("");
 }
 function updHint() {
   const F = L.form, h = document.getElementById("f-hint"), a = document.getElementById("f-alert"); if (!h) return;
@@ -558,17 +605,29 @@ async function abrirRelatorio(cargaId, msgId) {
 }
 
 /* ---------- agenda ---------- */
+/* o que cada cliente comprou: milheiro, total e quanto falta receber */
+function pedidosHtml(c, adm) {
+  return '<div class="pedidos">' + grupos(c).map(g => { const f = freteGrupo(c, g), pag = pagDe(c, g.idx[0]);
+    return '<div class="ped"><div class="ped-top"><span class="t">' + esc(g.nome) + '</span>' + (adm ? '<span class="chip ' + (pag === "Pago" ? "green" : pag === "Fiado" ? "red" : "amber") + '">' + esc(pag) + "</span>" : "") + "</div>" +
+      g.idx.map(i => { const e = c.entregas[i]; return '<div class="ped-l"><span>' + esc(e.medida) + " · " + n1(e.mil) + " mil × " + brl2(e.preco) + "</span><strong>" + brl2(e.mil * e.preco) + "</strong></div>"; }).join("") +
+      (f.cobrado ? '<div class="ped-l"><span>Frete à parte</span><strong>' + brl2(f.cobrado) + "</strong></div>" : "") +
+      '<div class="ped-l tot"><span>' + (adm && pag === "Pago" ? "Total (já pago)" : "Total a receber") + "</span><strong>" + brl2(f.total) + "</strong></div></div>"; }).join("") + "</div>";
+}
+function aReceber(c) { return grupos(c).reduce((s, g) => s + (pagDe(c, g.idx[0]) === "Pago" ? 0 : freteGrupo(c, g).total), 0); }
 function cargaCard(c) {
   const r = resumo(c), st = c.status === "Entregue" ? "green" : c.status === "Carregada" ? "amber" : "brick", adm = ADM(), rel = adm && D.rels.find(x => x.carga_id === c.id);
-  const gv = gastosViagem(c);
+  const gv = gastosViagem(c), falta = adm ? aReceber(c) : r.receita, abrir = c.entregas.some((e, i) => fotos[c.id + "|" + i] || carregando === c.id + "|" + i);
   return '<section class="card"><div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start"><div style="min-width:0"><h3>' + esc(c.vendedor) + " · " + n1(r.mil) + ' mil</h3><div class="hint">' + esc(forn(c.ceramica).nome) + "</div></div>" +
     '<span class="chip ' + st + '">' + esc(c.status) + "</span></div>" + rotaHtml(c, true) +
-    '<div class="stats"><div class="stat"><div class="l">Caminhão</div><div class="v" style="color:' + corOcc(r.pct) + '">' + r.pct + '%</div></div><div class="stat"><div class="l">Frete à parte</div><div class="v">' + brl(r.frete) + "</div></div>" +
-    (adm ? '<div class="stat"><div class="l">Lucro antes da viagem</div><div class="v ' + (r.lucro >= 0 ? "pos" : "neg") + '">' + brl(r.lucro) + '</div></div><div class="stat"><div class="l">Líquido (com gastos)</div><div class="v ' + (r.lucro - gv >= 0 ? "pos" : "neg") + '">' + brl(r.lucro - gv) + "</div></div>" : '<div class="stat" style="grid-column:1/-1"><div class="l">Total da carga</div><div class="v">' + brl(r.receita) + "</div></div>") + "</div>" +
+    pedidosHtml(c, adm) +
+    '<div class="stats"><div class="stat"><div class="l">Total da carga</div><div class="v">' + brl(r.receita) + '</div></div><div class="stat"><div class="l">A receber</div><div class="v" style="color:' + (falta > 0 ? "var(--warn)" : "var(--ok)") + '">' + brl(falta) + "</div></div>" +
+    '<div class="stat"><div class="l">Caminhão</div><div class="v" style="color:' + corOcc(r.pct) + '">' + r.pct + '%</div></div><div class="stat"><div class="l">Frete à parte</div><div class="v">' + brl(r.frete) + "</div></div>" +
+    (adm ? '<div class="stat"><div class="l">Pagar na fábrica</div><div class="v">' + brl(r.custo) + '</div></div><div class="stat"><div class="l">Lucro antes da viagem</div><div class="v ' + (r.lucro >= 0 ? "pos" : "neg") + '">' + brl(r.lucro) + '</div></div><div class="stat" style="grid-column:1/-1"><div class="l">Líquido (com gastos)</div><div class="v ' + (r.lucro - gv >= 0 ? "pos" : "neg") + '">' + brl(r.lucro - gv) + "</div></div>" : "") + "</div>" +
+    (adm && c.entregas.some(temCarregado) ? '<p class="hint">Pagamento da fábrica pela quantidade carregada.</p>' : "") +
     (adm && gv ? '<p class="hint">Gastos da viagem lidos pelo Financeiro: ' + brl(gv) + ".</p>" : "") +
     (r.abaixo ? '<span class="chip red">' + r.abaixo + " entrega(s) abaixo do mínimo</span>" : "") +
     (c.status === "Entregue" && Camera && c.entregas.some(e => !e.foto) ? '<p class="hint">Falta a foto da entrega. Abra "Ver entregas" pra tirar.</p>' : "") +
-    "<details" + (c.entregas.some((e, i) => fotos[c.id + "|" + i]) ? " open" : "") + "><summary>Ver entregas</summary>" + c.entregas.map((e, i) => entregaRow(e, c, i, { pag: adm, foto: true })).join("") +
+    "<details" + (abrir ? " open" : "") + "><summary>Ver entregas, quantidade carregada e fotos</summary>" + c.entregas.map((e, i) => entregaRow(e, c, i, { pag: adm, foto: true, carregar: true })).join("") +
       (adm ? grupos(c).map(g => '<div class="field" style="margin-bottom:8px"><label for="pg-' + c.id + "-" + g.idx[0] + '">Pagamento de ' + esc(g.nome) + '</label><select id="pg-' + c.id + "-" + g.idx[0] + '" data-pag="' + c.id + "|" + g.idx.join(",") + '">' + opts(PAGS, pagDe(c, g.idx[0])) + "</select></div>").join("") : "") + "</details>" +
     (rel ? '<button class="btn" data-act="rel" data-id="' + c.id + '" data-msg="rm-' + c.id + '">Relatório de viagem nº ' + String(rel.numero).padStart(4, "0") + ' (Excel)</button><p class="hint" id="rm-' + c.id + '"></p>' : "") +
     '<div class="grid2"><div class="field"><label for="st-' + c.id + '">Situação</label><select id="st-' + c.id + '" data-status="' + c.id + '">' + opts(STATUS, c.status) + "</select></div>" +
@@ -635,19 +694,21 @@ function vFerramentas() {
 
 /* ---------- painel do administrador ---------- */
 function vPainel() {
-  const mes = L.mesResumo, doMes = D.cargas.filter(c => c.data.slice(0, 7) === mes), pv = {}; const T = { n: 0, mil: 0, venda: 0, frete: 0, lucro: 0, gastos: 0 };
+  const mes = L.mesResumo, entregue = c => c.status === "Entregue", doMesTodas = D.cargas.filter(c => c.data.slice(0, 7) === mes), doMes = doMesTodas.filter(entregue), pv = {};
+  const pend = doMesTodas.filter(c => !entregue(c)), pendMil = pend.reduce((s, c) => s + c.entregas.reduce((a, e) => a + e.mil, 0), 0); const T = { n: 0, mil: 0, venda: 0, frete: 0, lucro: 0, gastos: 0 };
   doMes.forEach(c => { const r = resumo(c), g = gastosViagem(c), x = pv[c.vendedor] = pv[c.vendedor] || { n: 0, mil: 0, venda: 0, frete: 0, lucro: 0 }; [x, T].forEach(o => { o.n++; o.mil += r.mil; o.venda += r.venda; o.frete += r.frete; o.lucro += r.lucro; }); T.gastos += g; });
   const deve = {}; let aRec = 0, fiado = 0;
-  D.cargas.forEach(c => grupos(c).forEach(g => { const p = pagDe(c, g.idx[0]); if (p === "Pago") return; const v = freteGrupo(c, g).total; if (p === "Fiado") fiado += v; else aRec += v; (deve[g.nome] = deve[g.nome] || []).push({ c, g, v, p }); }));
+  D.cargas.filter(entregue).forEach(c => grupos(c).forEach(g => { const p = pagDe(c, g.idx[0]); if (p === "Pago") return; const v = freteGrupo(c, g).total; if (p === "Fiado") fiado += v; else aRec += v; (deve[g.nome] = deve[g.nome] || []).push({ c, g, v, p }); }));
   const rels = D.rels.map(r => ({ r, c: acharCarga(r.carga_id) })).filter(x => x.c), meses = [...new Set(rels.map(x => x.c.data.slice(0, 7)))].sort().reverse();
   return '<section class="card"><div class="calhead"><button class="btn small ghost" data-act="rm-prev" aria-label="Mês anterior">‹</button><h2>Resumo de ' + esc(mesLabel(mes).toLowerCase()) + '</h2><button class="btn small ghost" data-act="rm-next" aria-label="Próximo mês">›</button></div>' +
     '<div class="stats"><div class="stat"><div class="l">Cargas</div><div class="v">' + T.n + '</div></div><div class="stat"><div class="l">Milheiros</div><div class="v">' + n1(T.mil) + "</div></div>" +
     '<div class="stat"><div class="l">Tijolo</div><div class="v">' + brl(T.venda) + '</div></div><div class="stat"><div class="l">Frete</div><div class="v">' + brl(T.frete) + "</div></div>" +
     '<div class="stat"><div class="l">Gastos das viagens</div><div class="v neg">' + brl(T.gastos) + '</div></div><div class="stat"><div class="l">Líquido</div><div class="v ' + (T.lucro - T.gastos >= 0 ? "pos" : "neg") + '">' + brl(T.lucro - T.gastos) + "</div></div></div>" +
+    '<p class="hint">Conta só as cargas marcadas como Entregue. Carga apagada sai daqui e de todos os relatórios.' + (pend.length ? " Ainda não entregues neste mês: " + pend.length + " carga(s), " + n1(pendMil) + " mil. Entram quando forem marcadas como Entregue." : "") + "</p>" +
     (Object.keys(pv).length ? '<div class="tbl"><table><thead><tr><th>Vendedor</th><th>Cargas</th><th>Mil</th><th>Tijolo</th><th>Lucro</th></tr></thead><tbody>' +
-      Object.entries(pv).sort((a, b) => b[1].venda - a[1].venda).map(([v, x]) => "<tr><td>" + esc(v) + "</td><td>" + x.n + "</td><td>" + n1(x.mil) + "</td><td>" + brl(x.venda) + "</td><td>" + brl(x.lucro) + "</td></tr>").join("") + "</tbody></table></div>" : '<p class="hint">Nenhuma carga nesse mês.</p>') + "</section>" +
+      Object.entries(pv).sort((a, b) => b[1].venda - a[1].venda).map(([v, x]) => "<tr><td>" + esc(v) + "</td><td>" + x.n + "</td><td>" + n1(x.mil) + "</td><td>" + brl(x.venda) + "</td><td>" + brl(x.lucro) + "</td></tr>").join("") + "</tbody></table></div>" : '<p class="hint">Nenhuma carga entregue nesse mês.</p>') + "</section>" +
     '<section class="card"><h2>Pagamentos</h2><div class="stats"><div class="stat"><div class="l">A receber</div><div class="v" style="color:var(--warn)">' + brl(aRec) + '</div></div><div class="stat"><div class="l">Fiado</div><div class="v neg">' + brl(fiado) + "</div></div></div>" +
-    '<p class="hint">Quando o Pix cai na conta, o Financeiro marca como pago sozinho.</p>' +
+    '<p class="hint">Só das cargas entregues. Quando o Pix cai na conta, o Financeiro marca como pago sozinho.</p>' +
     (Object.keys(deve).length ? "<div>" + Object.entries(deve).map(([k, l]) => '<div class="row" style="flex-direction:column;align-items:stretch;gap:6px"><div style="display:flex;justify-content:space-between;gap:8px"><span class="t">' + esc(k) + "</span><strong>" + brl(l.reduce((s, x) => s + x.v, 0)) + "</strong></div>" +
       l.map(x => '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span class="s">' + esc(diaCurto(x.c.data)) + " · " + brl(x.v) + '</span><select class="mini" aria-label="Pagamento" data-pag="' + x.c.id + "|" + x.g.idx.join(",") + '">' + opts(PAGS, x.p) + "</select></div>").join("") + "</div>").join("") + "</div>"
       : '<p class="hint">Ninguém está devendo.</p>') + "</section>" +
@@ -773,14 +834,24 @@ document.addEventListener("click", e => { const a = e.target.closest('a[target="
 main.addEventListener("input", e => {
   const t = e.target, id = t.id, v = t.value;
   if (id.startsWith("f-")) { L.form[id.slice(2)] = v;
-    if (id === "f-cliente") { const cl = acharCli(v); if (cl && CAD().cidades.some(c => c.nome === cl.cidade)) { L.form.cidade = cl.cidade; document.getElementById("f-cidade").value = cl.cidade; } }
+    if (id === "f-cliente") { const cl = acharCli(v); if (cl && CAD().cidades.some(c => c.nome === cl.cidade)) { L.form.cidade = cl.cidade; document.getElementById("f-cidade").value = cl.cidade; } const sg = document.getElementById("f-sug"); if (sg) sg.innerHTML = sugCli(v); }
     salvarLocal(); updHint(); avisoErro("f-err", ""); }
   else if (t.dataset.tel != null) { const R = L.rascunho, g = grupos(R)[+t.dataset.tel]; g.idx.forEach(i => { R.entregas[i].tel = v; }); salvarLocal();
     const a = document.querySelector('[data-wa="' + t.dataset.tel + '"]'); if (a) a.href = waHref(v, waTexto(docCarga(), g)); }
   else if (id === "busca") { buscaCli = v; const pos = t.selectionStart; render(); const b = document.getElementById("busca"); if (b) { b.focus(); b.setSelectionRange(pos, pos); } }
+  else if (t.dataset.carr) {
+    const [cid_, i] = t.dataset.carr.split("|"), c = acharCarga(cid_); if (!c) return; const e = c.entregas[+i], pf = med(e.medida).pf;
+    const x = parseNum(v), outro = document.getElementById(id === "cr-fi" ? "cr-mil" : "cr-fi");
+    let mil = NaN;
+    if (id === "cr-fi") { mil = isFinite(x) ? r3(x * pf / 1000) : NaN; if (outro) outro.value = isFinite(mil) ? numTxt(mil) : ""; }
+    else { mil = x; if (outro) outro.value = isFinite(x) ? numTxt(r2(x * 1000 / pf)) : ""; }
+    const ct = document.getElementById("cr-conta"); if (ct) ct.innerHTML = carrConta(e, calcEntrega(e, c, +i).cm, mil); avisoErro("cr-err", "");
+  }
   else if (id === "c-mil") avisoErro("calc-err", "");
   else if (id === "lg-senha") avisoErro("login-err", "");
 });
+main.addEventListener("focusin", e => { if (e.target.id === "f-cliente") setTimeout(() => { e.target.scrollIntoView({ block: "start", behavior: "smooth" }); }, 350); });
+main.addEventListener("mousedown", e => { if (e.target.closest(".sug button")) e.preventDefault(); });
 let timerEmpresa = null;
 main.addEventListener("change", async e => {
   const t = e.target, v = t.value;
@@ -818,6 +889,28 @@ main.addEventListener("click", async e => {
     const cl = acharCli(F.cliente), nome = F.cliente.trim(), ja = L.rascunho.entregas.find(x => norm(x.cliente) === norm(nome));
     L.rascunho.entregas.push({ cliente: nome, cidade: F.cidade, medida: F.medida, mil, preco, tel: cl ? cl.tel || "" : "", cpf: cl ? cl.cpf || "" : "", endc: cl ? cl.endereco || "" : "", freteOn: ja ? ja.freteOn !== false : true });
     L.form = { ...F, cliente: "", mil: "", preco: "" }; aviso = ""; salvarLocal(); render();
+  }
+  else if (a === "sug") {
+    const nome = b.dataset.nome, cl = acharCli(nome), inp = document.getElementById("f-cliente");
+    L.form.cliente = nome; if (inp) inp.value = nome;
+    if (cl && CAD().cidades.some(c => c.nome === cl.cidade)) { L.form.cidade = cl.cidade; const fc = document.getElementById("f-cidade"); if (fc) fc.value = cl.cidade; }
+    const sg = document.getElementById("f-sug"); if (sg) sg.innerHTML = ""; salvarLocal(); updHint();
+    const fm = document.getElementById("f-mil"); if (fm) fm.focus();
+  }
+  else if (a === "carr-abrir") { carregando = b.dataset.k; render(); const f = document.getElementById("cr-fi"); if (f) { f.scrollIntoView({ block: "center" }); } }
+  else if (a === "carr-x") { carregando = null; render(); }
+  else if (a === "carr-salvar" || a === "carr-limpar") {
+    const k = b.dataset.k, [cid_, i] = k.split("|"), c = acharCarga(cid_); if (!c) return;
+    let valor = null;
+    if (a === "carr-salvar") {
+      const txt = document.getElementById("cr-mil").value.trim(), mil = parseNum(txt);
+      if (!txt) { avisoErro("cr-err", "Coloque as fiadas ou os milheiros carregados. Pra usar a quantidade do pedido, toque em Cancelar."); return; }
+      if (!(mil >= 0)) { avisoErro("cr-err", "Use só números."); return; }
+      valor = { mil: r3(mil), fiadas: r2(mil * 1000 / med(c.entregas[+i].medida).pf), em: HOJE };
+    }
+    b.disabled = true;
+    if (!(await salvarCarregado(k, valor))) { b.disabled = false; avisoErro("cr-err", "Não deu pra salvar. Confira a internet."); return; }
+    carregando = null; render();
   }
   else if (a === "rm") { L.rascunho.entregas.splice(+b.dataset.i, 1); salvarLocal(); render(); }
   else if (a === "ir-docs") { if (!L.rascunho.entregas.length) { avisoErro("p-err", "Adicione pelo menos uma entrega."); return; } L.pedido.step = 2; comp = null; aviso = ""; salvarLocal(); render(); window.scrollTo(0, 0); }

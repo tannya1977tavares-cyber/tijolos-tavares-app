@@ -118,12 +118,14 @@
   }
 
   const normMedida = s => String(s || "").toLowerCase().replace(/maci[cç]o/g, "").replace(/×/g, "x").replace(/\s+/g, "").replace(/(^|x)0+(\d)/g, "$1$2");
+  const milCompra = it => it.compra != null && isFinite(+it.compra) ? +it.compra : +it.mil || 0;
   const dataBR = s => String(s || "").slice(0, 10).split("-").reverse().join("/");
 
   /*
    dados = {
      numero, data:"AAAA-MM-DD", vendedor, ceramica, rota:[cidades], fiadas, ocupacao (0..1),
-     itens:[{medida, mil, preco, frete, custo}],                      uma por entrega
+     itens:[{medida, mil, preco, frete, custo, compra}],              uma por entrega; compra = milheiros comprados na cerâmica
+                                                                       ("quantidade carregada"; sem ela vale mil)
      clientes:[{nome, tel, endereco, pagamento, forma, total}],
      ajudantes:[{nome, valor}],                                         o combinado por carga
      gastos:[{quando:ms, categoria, onde, valor, banco}],                saídas ligadas à carga
@@ -138,11 +140,11 @@
     const linhas = []; for (let r = 5; r <= 14; r++) linhas.push({ r, chave: normMedida(pl.texto("B" + r)), usado: false });
     linhas.forEach(l => { if (l.chave === "5x10x20") { l.chave = "5x9x19"; pl.pôr("B" + l.r, "5X9X19"); } });
     const soma = {};
-    dados.itens.forEach(it => { const k = it.medida + "|" + it.preco; (soma[k] = soma[k] || { medida: it.medida, mil: 0, valor: 0, custo: 0 }); soma[k].mil += +it.mil || 0; soma[k].valor += (+it.mil || 0) * (+it.preco || 0); soma[k].custo += (+it.mil || 0) * (+it.custo || 0); });
+    dados.itens.forEach(it => { const k = it.medida + "|" + it.preco; (soma[k] = soma[k] || { medida: it.medida, mil: 0, compra: 0, valor: 0, custo: 0 }); soma[k].mil += +it.mil || 0; soma[k].compra += milCompra(it); soma[k].valor += (+it.mil || 0) * (+it.preco || 0); soma[k].custo += milCompra(it) * (+it.custo || 0); });
     const sobra = [];
     Object.values(soma).forEach(s => { const l = linhas.find(x => !x.usado && x.chave && x.chave === normMedida(s.medida)); if (l) Object.assign(l, { usado: true }, s); else sobra.push(s); });
     const fora = []; let custoFora = 0;
-    sobra.forEach(s => { const l = linhas.filter(x => !x.usado && x.r <= 13).reverse()[0]; if (l) { Object.assign(l, { usado: true }, s); pl.pôr("B" + l.r, s.medida.toUpperCase()); } else { custoFora += s.custo; fora.push(s.medida + ": " + String(r2(s.mil)).replace(".", ",") + " mil, venda " + real(s.valor) + ", compra " + real(s.custo)); } });
+    sobra.forEach(s => { const l = linhas.filter(x => !x.usado && x.r <= 13).reverse()[0]; if (l) { Object.assign(l, { usado: true }, s); pl.pôr("B" + l.r, s.medida.toUpperCase()); } else { custoFora += s.custo; fora.push(s.medida + ": " + String(r2(s.mil)).replace(".", ",") + " mil, venda " + real(s.valor) + ", compra " + real(s.custo) + (r2(s.compra) !== r2(s.mil) ? " (" + String(r2(s.compra)).replace(".", ",") + " mil carregados)" : "")); } });
     pl.pôr("J3", "PAGAMENTO À CERÂMICA: " + (dados.ceramica || ""));
     [["J4", "MEDIDA", "B4"], ["K4", "QUANTIDADE", "C4"], ["L4", "COMPRA MILHEIRO", "D4"], ["M4", "TOTAL PAGO", "E4"]].forEach(([r, t, e]) => pl.pôr(r, t, { estiloDe: e }));
     linhas.forEach(l => {
@@ -152,8 +154,9 @@
       pl.pôr("D" + l.r, l.mil ? l.valor / l.mil : 0, { moeda: true });
       if (l.r <= 13) pl.pôr("E" + l.r, "C" + l.r + "*D" + l.r, { formula: true, moeda: true });
       pl.pôr("J" + l.r, "B" + l.r, { formula: true, estiloDe: "B" + l.r });
-      pl.pôr("K" + l.r, "C" + l.r, { formula: true, estiloDe: "C" + l.r });
-      pl.pôr("L" + l.r, l.mil ? l.custo / l.mil : 0, { moeda: true, estiloDe: "D" + l.r });
+      if (r2(l.compra) === r2(l.mil)) pl.pôr("K" + l.r, "C" + l.r, { formula: true, estiloDe: "C" + l.r });
+      else pl.pôr("K" + l.r, r2(l.compra), { estiloDe: "C" + l.r });
+      pl.pôr("L" + l.r, l.compra ? l.custo / l.compra : 0, { moeda: true, estiloDe: "D" + l.r });
       pl.pôr("M" + l.r, "K" + l.r + "*L" + l.r, { formula: true, moeda: true, estiloDe: "D" + l.r });
     });
     pl.pôr("J15", "TOTAL CERÂMICA", { estiloDe: "B14" });
@@ -218,7 +221,7 @@
   function calcular(dados) {
     const tijolo = r2(dados.itens.reduce((s, it) => s + (+it.mil || 0) * (+it.preco || 0), 0));
     const frete = r2(dados.itens.reduce((s, it) => s + (+it.frete || 0), 0));
-    const ceramica = r2(dados.itens.reduce((s, it) => s + (+it.mil || 0) * (+it.custo || 0), 0));
+    const ceramica = r2(dados.itens.reduce((s, it) => s + milCompra(it) * (+it.custo || 0), 0));
     let pagamentos = r2((dados.ajudantes || []).reduce((s, a) => s + (+a.valor || 0), 0)), gastos = 0;
     (dados.gastos || []).forEach(g => { if (linhaDoGasto(g.categoria).tipo === "Pagamento") pagamentos += +g.valor || 0; else gastos += +g.valor || 0; });
     pagamentos = r2(pagamentos); gastos = r2(gastos);
@@ -259,7 +262,8 @@
     const ajudantes = (f.ajudantes || []).filter(a => a.carga_id === c.id).map(a => ({ nome: pessoa(a.pessoa_id).nome || "Ajudante", valor: +a.valor || 0 }));
     const forn = (cad.fornecedores || []).find(x => x.id === c.ceramica);
     return { numero: f.numero, data: String(c.data).slice(0, 10), vendedor: c.vendedor, ceramica: forn ? forn.nome : (c.ceramica === "anapolina" ? "Cerâmica Anapolina" : "Outra cerâmica"),
-      rota, fiadas, ocupacao, itens: ents.map((e, i) => ({ medida: e.medida, mil: +e.mil || 0, preco: +e.preco || 0, frete: +e.frete || 0, custo: +(f.custos || [])[i] || 0 })),
+      rota, fiadas, ocupacao, itens: ents.map((e, i) => ({ medida: e.medida, mil: +e.mil || 0, preco: +e.preco || 0, frete: +e.frete || 0, custo: +(f.custos || [])[i] || 0,
+        compra: e.carregado && e.carregado.mil != null && isFinite(+e.carregado.mil) ? +e.carregado.mil : +e.mil || 0 })),
       clientes, ajudantes, gastos, freteRetorno: +f.freteRetorno || 0 };
   }
 

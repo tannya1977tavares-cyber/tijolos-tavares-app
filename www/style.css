@@ -150,3 +150,21 @@ details > summary{cursor:pointer;font-weight:600;padding:6px 0}
 @media (max-width:480px){.cfgbtn .tx{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}.cfgbtn{width:calc(40px*var(--bt,1));height:calc(40px*var(--bt,1));justify-content:center;padding:0}}
 .tabs button{font-size:calc(13px*min(var(--fs,1),1.08));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tabs .n{font-size:11px}
+/* sugestões de cliente: embaixo do campo, poucas, sem cobrir o teclado */
+#f-cliente{scroll-margin-top:72px}
+.sug{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface)}
+.sug:empty{display:none}
+.sug button{display:flex;justify-content:space-between;gap:8px;align-items:center;min-height:44px;padding:8px 12px;border:0;border-top:1px solid var(--line);background:var(--surface);color:var(--ink);text-align:left;font-weight:600}
+.sug button:first-child{border-top:0}
+.sug button .s{font-weight:400;color:var(--muted);font-size:calc(13px*var(--fs,1))}
+/* pedidos na agenda */
+.pedidos{display:flex;flex-direction:column;gap:8px}
+.ped{background:var(--field);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:4px}
+.ped-top{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.ped-top .t{font-weight:600}
+.ped-l{display:flex;justify-content:space-between;gap:8px;font-size:calc(14px*var(--fs,1));color:var(--muted)}
+.ped-l strong{color:var(--ink);white-space:nowrap}
+.ped-l.tot{border-top:1px dashed var(--line);padding-top:4px;margin-top:2px;font-size:calc(15px*var(--fs,1));color:var(--ink);font-weight:600}
+/* quantidade carregada */
+.carr{margin-top:8px;border:1px solid var(--brick);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--surface)}
+.carr-conta{display:flex;flex-direction:column;gap:6px;background:var(--field);border-radius:8px;padding:10px;font-size:calc(14px*var(--fs,1))}
