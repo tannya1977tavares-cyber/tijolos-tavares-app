@@ -16,3 +16,11 @@ assert.strictEqual(t.tijolo, 12334); assert.strictEqual(t.frete, 100); assert.st
 assert.strictEqual(t.pagamentos, 420); assert.strictEqual(t.gastos, 890.9); assert.strictEqual(t.liquido, 1673.1);
 require("fs").writeFileSync(process.argv[2] || "/tmp/rel.xlsx", b);
 console.log("relatorio: tudo certo");
+/* quantidade carregada: a cerâmica é paga só pelo que foi carregado; o tijolo de fora não entra */
+const d2 = JSON.parse(JSON.stringify(dados)); d2.itens[0].compra = 3.6;
+const t2 = RV.calcular(d2);
+assert.strictEqual(t2.tijolo, 12334); assert.strictEqual(t2.ceramica, 7700); assert.strictEqual(t2.liquido, 3423.1);
+assert.strictEqual(RV.montar(d2)[0], 0x50);
+const dd = RV.dadosDe({ numero: 1, carga: { id: "x", data: "2026-11-03", vendedor: "Bruno", ceramica: "anapolina", entregas: [{ cliente: "A", cidade: "Goiânia", medida: "09x19x19", mil: 10, preco: 900, carregado: { mil: 8, fiadas: 95.24 } }, { cliente: "B", cidade: "Goiânia", medida: "09x19x19", mil: 2, preco: 900 }] }, custos: [600, 600] });
+assert.strictEqual(dd.itens[0].compra, 8); assert.strictEqual(dd.itens[1].compra, 2); assert.strictEqual(RV.calcular(dd).ceramica, 6000);
+console.log("quantidade carregada: tudo certo");
