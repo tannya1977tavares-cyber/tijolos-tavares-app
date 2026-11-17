@@ -168,3 +168,5 @@ details > summary{cursor:pointer;font-weight:600;padding:6px 0}
 /* quantidade carregada */
 .carr{margin-top:8px;border:1px solid var(--brick);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--surface)}
 .carr-conta{display:flex;flex-direction:column;gap:6px;background:var(--field);border-radius:8px;padding:10px;font-size:calc(14px*var(--fs,1))}
+.recibos{display:flex;flex-direction:column;gap:8px;border-top:1px dashed var(--line,rgba(255,255,255,.15));padding-top:12px}
+.recibos.destaque{border:2px solid var(--ok);border-radius:12px;padding:12px}

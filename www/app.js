@@ -99,13 +99,15 @@ function calcEntrega(e, c, i) {
   return { cm, min, fiadas, occ: fiadas / m.fiadas, compra: milCompra(e), custo: cm * milCompra(e), venda: e.preco * e.mil, abaixo: min != null && e.preco < min, fm: e.freteMil != null ? e.freteMil : freteMil(e) };
 }
 function grupos(c) { const g = []; c.entregas.forEach((e, i) => { const k = e.cliente || "Sem nome"; let x = g.find(y => y.nome === k); if (!x) { x = { nome: k, idx: [] }; g.push(x); } x.idx.push(i); }); return g; }
-/* frete de um cliente: carga fechada não paga; carga que não fecha paga à parte (se marcado) */
+/* frete de um cliente: carga fechada não paga; carga que não fecha paga à parte (se marcado).
+   O valor sugerido vem da tabela; se o vendedor digitou outro (freteEdit), vale o digitado. */
+const freteEditDe = (c, g) => { const v = c.entregas[g.idx[0]].freteEdit; return v != null && v !== "" && isFinite(+v) && +v >= 0 ? +v : null; };
 function freteGrupo(c, g) {
-  let occ = 0, valor = 0, tijolo = 0, mil = 0; const taxas = new Set();
-  g.idx.forEach(i => { const e = c.entregas[i], k = calcEntrega(e, c, i); occ += k.occ; valor += e.mil * k.fm; tijolo += k.venda; mil += e.mil; taxas.add(k.fm); });
-  const fechada = occ >= 0.999, on = c.entregas[g.idx[0]].freteOn !== false;
+  let occ = 0, sug = 0, tijolo = 0, mil = 0; const taxas = new Set();
+  g.idx.forEach(i => { const e = c.entregas[i], k = calcEntrega(e, c, i); occ += k.occ; sug += e.mil * k.fm; tijolo += k.venda; mil += e.mil; taxas.add(k.fm); });
+  const fechada = occ >= 0.999, on = c.entregas[g.idx[0]].freteOn !== false, ed = c.salva ? null : freteEditDe(c, g), valor = ed != null ? ed : sug;
   const cobrado = c.salva ? g.idx.reduce((s, i) => s + (+c.entregas[i].frete || 0), 0) : (!fechada && on ? valor : 0);
-  return { occ, valor: r2(valor), fechada, on, cobrado: r2(cobrado), tijolo, mil, taxas: [...taxas], total: r2(tijolo + cobrado) };
+  return { occ, valor: r2(valor), sugerido: r2(sug), editado: ed != null, fechada, on, cobrado: r2(cobrado), tijolo, mil, taxas: [...taxas], total: r2(tijolo + cobrado) };
 }
 function resumo(c) {
   const r = { mil: 0, fiadas: 0, occ: 0, custo: 0, venda: 0, abaixo: 0, frete: 0 };
@@ -256,7 +258,7 @@ async function procurarVersao() {
 
 /* ---------- desenho ---------- */
 const main = document.getElementById("main");
-let comp = null, confirmar = null, aviso = "", cadastrando = null, buscaCli = "", fotos = {}, renderPendente = false, editando = null, msgCfg = "", carregando = null;
+let entregueAgora = null, comp = null, confirmar = null, aviso = "", cadastrando = null, buscaCli = "", fotos = {}, renderPendente = false, editando = null, msgCfg = "", carregando = null;
 
 function renderSeguro() {
   const a = document.activeElement;
@@ -309,7 +311,7 @@ function freteLinha(c, g) {
   if (f.fechada && !f.cobrado) return '<span class="chip green">Fecha a carga: sem frete</span>';
   if (c.salva) return f.cobrado ? '<span class="chip amber">Frete à parte ' + brl2(f.cobrado) + "</span>" : '<span class="chip">Sem frete</span>';
   const taxa = f.taxas.length === 1 ? n1(f.mil) + " mil × " + brl2(f.taxas[0]) : "conforme cidade e medida";
-  return f.on ? '<span class="chip amber">Frete à parte ' + brl2(f.valor) + " (" + taxa + ")</span>" : '<span class="chip">Sem cobrança de frete</span>';
+  return f.on ? '<span class="chip amber">Frete à parte ' + brl2(f.valor) + " (" + (f.editado ? "valor digitado" : taxa) + ")</span>" : '<span class="chip">Sem cobrança de frete</span>';
 }
 /* quantidade carregada: o que foi comprado de fato no fornecedor (o resto do pedido veio de fora) */
 const r3 = v => Math.round(v * 1000) / 1000;
@@ -442,8 +444,10 @@ function vDocs() {
       return '<div class="cli"><div class="t" style="font-weight:600">' + esc(g.nome) + "</div>" +
         '<div class="linha-total"><span>Tijolos</span><strong>' + brl2(f.tijolo) + "</strong></div>" +
         (f.fechada ? '<div class="okmsg">Esse cliente fecha uma carga (' + Math.round(f.occ * 100) + "%). Não cobra frete.</div>"
-          : '<label class="check"><input type="checkbox" data-frete="' + gi + '"' + (f.on ? " checked" : "") + "><span><strong>Cobrar frete à parte: " + brl2(f.valor) + '</strong><br><span class="sub">' + esc(taxa) + ", carga em " + Math.round(f.occ * 100) + "% do caminhão</span></span></label>") +
-        '<div class="linha-total grande"><span>Total do cliente</span><strong>' + brl2(f.total) + "</strong></div>" +
+          : '<label class="check"><input type="checkbox" data-frete="' + gi + '"' + (f.on ? " checked" : "") + "><span><strong>Cobrar frete à parte</strong><br><span class=\"sub\">Sugerido: " + brl2(f.sugerido) + " (" + esc(taxa) + "), carga em " + Math.round(f.occ * 100) + "% do caminhão</span></span></label>" +
+            (f.on ? '<div class="field"><label for="fv-' + gi + '">Valor do frete (pode mudar)</label><input id="fv-' + gi + '" data-fretev="' + gi + '" inputmode="decimal" value="' + esc(numTxt(f.valor)) + '" placeholder="' + esc(numTxt(f.sugerido)) + '"></div>' +
+              (f.editado ? '<button class="btn small ghost" data-act="frete-sug" data-g="' + gi + '">Voltar pro sugerido (' + brl2(f.sugerido) + ")</button>" : "") : "")) +
+        '<div class="linha-total grande"><span>Total do cliente</span><strong id="tot-' + gi + '">' + brl2(f.total) + "</strong></div>" +
         '<div class="field"><label for="tel-' + gi + '">WhatsApp do cliente</label><input id="tel-' + gi + '" data-tel="' + gi + '" inputmode="tel" value="' + esc(tel) + '" placeholder="(62) 99999-9999"></div>' +
         (comp && comp.gi === gi ? compHtml(c, g, gi) : '<div class="grid2"><button class="btn" data-act="comp" data-tipo="orcamento" data-g="' + gi + '">Orçamento PDF</button><button class="btn" data-act="comp" data-tipo="recibo" data-g="' + gi + '">Recibo PDF</button></div>') +
         '<p class="hint" id="msg-' + gi + '" role="status"></p>' +
@@ -476,6 +480,7 @@ function extInt(n) {
 }
 function extenso(v) { const i = Math.floor(v + 1e-9), c = Math.round((v - i) * 100); return extInt(i) + (i === 1 ? " real" : " reais") + (c ? " e " + extInt(c) + (c === 1 ? " centavo" : " centavos") : ""); }
 const descMed = m => "Tijolo " + (m.includes("maciço") ? "maciço " : "cerâmico ") + m.replace(" REQ", "").replace(" maciço", "").replace(/x/g, " x ") + " cm" + (m.includes("REQ") ? " requeimado" : "");
+const taxaFrete = f => f.taxas.length === 1 && Math.abs(f.mil * f.taxas[0] - f.cobrado) < 0.01 ? f.taxas[0] : null;
 const unid = mil => Math.round(mil * 1000).toLocaleString("pt-BR") + " un";
 function pdfOrcamento(c, g, num) {
   const doc = new window.jspdf.jsPDF({ unit: "mm", format: "a4" }), it = g.idx.map(i => c.entregas[i]), d = dadosCli(c, g), E = D.cfg.empresa, f = freteGrupo(c, g);
@@ -505,7 +510,7 @@ function pdfOrcamento(c, g, num) {
     else doc.text("----------", 121, y + 5);
     y += 7.5; dupla(29, 198, y); }
   doc.setFont("helvetica", "bold");
-  if (f.cobrado) { doc.text(n1(f.mil) + " mil", 31, y + 5); doc.text("FRETE À PARTE", 68, y + 5); doc.text(f.taxas.length === 1 ? brl2(f.taxas[0]) : "conforme cidade", 121, y + 5); doc.text(brl2(f.cobrado), 163, y + 5); }
+  if (f.cobrado) { doc.text(n1(f.mil) + " mil", 31, y + 5); doc.text("FRETE À PARTE", 68, y + 5); doc.text(taxaFrete(f) != null ? brl2(taxaFrete(f)) : "valor fechado", 121, y + 5); doc.text(brl2(f.cobrado), 163, y + 5); }
   else doc.text(f.fechada ? "FRETE: CARGA FECHADA, SEM FRETE" : "SEM COBRANÇA DE FRETE", 68, y + 5);
   y += 8; linha(29, 198, y);
   doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.text("Tijolos: " + brl2(f.tijolo) + (f.cobrado ? "   ·   Frete à parte: " + brl2(f.cobrado) : ""), 68, y + 5.5);
@@ -546,9 +551,9 @@ function pdfRecibo(c, g, num) {
   doc.text("Item", 20, y + 6.3); doc.text("Descrição", 32, y + 6.3); doc.text("Qtd.", 124, y + 6.3, { align: "right" }); doc.text("Valor milheiro", 156, y + 6.3, { align: "right" }); doc.text("Subtotal", 189, y + 6.3, { align: "right" });
   y += 9.5; doc.setTextColor(...INK); doc.setFont("helvetica", "normal"); doc.setDrawColor(225, 215, 215); let un = 0;
   it.forEach((e, i) => { un += Math.round(e.mil * 1000); doc.text(String(i + 1), 22, y + 6.5); doc.text(descMed(e.medida), 32, y + 6.5); doc.text(unid(e.mil), 124, y + 6.5, { align: "right" }); doc.text(brl2(e.preco), 156, y + 6.5, { align: "right" }); doc.text(brl2(e.mil * e.preco), 189, y + 6.5, { align: "right" }); y += 10; doc.line(18, y, 192, y); });
-  if (f.cobrado) { doc.text(String(it.length + 1), 22, y + 6.5); doc.text("Frete à parte", 32, y + 6.5); doc.text(n1(f.mil) + " mil", 124, y + 6.5, { align: "right" }); doc.text(f.taxas.length === 1 ? brl2(f.taxas[0]) : "–", 156, y + 6.5, { align: "right" }); doc.text(brl2(f.cobrado), 189, y + 6.5, { align: "right" }); y += 10; doc.line(18, y, 192, y); }
+  if (f.cobrado) { doc.text(String(it.length + 1), 22, y + 6.5); doc.text("Frete à parte", 32, y + 6.5); doc.text(n1(f.mil) + " mil", 124, y + 6.5, { align: "right" }); doc.text(taxaFrete(f) != null ? brl2(taxaFrete(f)) : "–", 156, y + 6.5, { align: "right" }); doc.text(brl2(f.cobrado), 189, y + 6.5, { align: "right" }); y += 10; doc.line(18, y, 192, y); }
   doc.setFillColor(...PINK); doc.rect(18, y, 174, 10, "F"); doc.setFont("helvetica", "bold"); doc.text("TOTAL", 32, y + 6.5); doc.text(un.toLocaleString("pt-BR") + " un", 124, y + 6.5, { align: "right" }); doc.text(brl2(tot), 189, y + 6.5, { align: "right" });
-  y += 27; doc.setFont("helvetica", "normal"); doc.text("Emitido em " + dataBR(HOJE) + ".", 189, y, { align: "right" });
+  y += 27; doc.setFont("helvetica", "normal"); doc.text((c.status === "Entregue" && c.data ? "Entregue em " + dataBR(c.data) + ". " : "") + "Emitido em " + dataBR(HOJE) + ".", 189, y, { align: "right" });
   y += 20; doc.setDrawColor(...INK); doc.setLineWidth(.2); doc.line(62, y, 148, y); doc.setFont("helvetica", "bold"); doc.text("Tijolos Tavares", 105, y + 5.5, { align: "center" });
   doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.text("Emitente", 105, y + 10.5, { align: "center" });
   y = Math.max(y + 20, 240); doc.setFillColor(...PINK); doc.rect(18, y, 174, 32, "F"); doc.setDrawColor(...RED); doc.setLineWidth(.8); doc.line(18, y, 192, y);
@@ -582,6 +587,27 @@ async function gerarPdf(gi, tipo) {
   const nome = (tipo === "recibo" ? "Recibo" : "Orcamento") + "-" + slug(g.nome) + "-" + HOJE + ".pdf";
   try { await entregarArquivo(nome, doc.output("datauristring").split(",")[1], "application/pdf", true); msg.textContent = NATIVO ? "Escolha o WhatsApp pra mandar o " + (tipo === "recibo" ? "recibo." : "orçamento.") : "PDF salvo."; }
   catch (e) { if (!/cancel/i.test(String(e && e.message))) msg.textContent = "Não deu pra abrir o compartilhar. Tente de novo."; }
+}
+
+/* recibo de um cliente de uma carga já agendada (aparece quando a carga fica "Entregue") */
+async function gerarReciboCarga(cargaId, gi) {
+  const c = acharCarga(cargaId), msg = t => { const el = document.getElementById("recm-" + cargaId); if (el) el.textContent = t; };
+  if (!c) return; const g = grupos(c)[gi]; if (!g) return;
+  if (!window.jspdf) { msg("Não deu pra carregar o gerador de PDF."); return; }
+  msg("Gerando o recibo de " + g.nome + "…");
+  const { data: num, error } = await sb.rpc("proximo_documento");
+  if (error || num == null) { msg("Sem conexão. Confira a internet e tente de novo."); return; }
+  const doc = pdfRecibo(c, g, num), nome = "Recibo-" + slug(g.nome) + "-" + c.data + ".pdf";
+  try { await entregarArquivo(nome, doc.output("datauristring").split(",")[1], "application/pdf", true); msg(NATIVO ? "Escolha o WhatsApp pra mandar o recibo de " + g.nome + "." : "Recibo de " + g.nome + " salvo."); }
+  catch (e) { if (!/cancel/i.test(String(e && e.message))) msg("Não deu pra abrir o compartilhar. Tente de novo."); }
+}
+function recibosHtml(c) {
+  if (c.status !== "Entregue") return "";
+  const agora = entregueAgora === c.id;
+  return '<div class="recibos' + (agora ? " destaque" : "") + '" id="rec-' + c.id + '">' +
+    (agora ? '<div class="okmsg" role="status">Carga entregue! Já pode gerar o recibo.</div>' : '<div class="t" style="font-weight:600">Recibo da entrega</div>') +
+    grupos(c).map((g, gi) => '<button class="btn' + (agora ? " primary" : "") + ' full" data-act="rec-carga" data-id="' + c.id + '" data-g="' + gi + '">Gerar recibo · ' + esc(g.nome) + " · " + brl2(freteGrupo(c, g).total) + "</button>").join("") +
+    '<p class="hint" id="recm-' + c.id + '" role="status"></p></div>';
 }
 
 /* ---------- relatório de viagem (só o administrador) ---------- */
@@ -631,7 +657,7 @@ function cargaCard(c) {
       (adm ? grupos(c).map(g => '<div class="field" style="margin-bottom:8px"><label for="pg-' + c.id + "-" + g.idx[0] + '">Pagamento de ' + esc(g.nome) + '</label><select id="pg-' + c.id + "-" + g.idx[0] + '" data-pag="' + c.id + "|" + g.idx.join(",") + '">' + opts(PAGS, pagDe(c, g.idx[0])) + "</select></div>").join("") : "") + "</details>" +
     (rel ? '<button class="btn" data-act="rel" data-id="' + c.id + '" data-msg="rm-' + c.id + '">Relatório de viagem nº ' + String(rel.numero).padStart(4, "0") + ' (Excel)</button><p class="hint" id="rm-' + c.id + '"></p>' : "") +
     '<div class="grid2"><div class="field"><label for="st-' + c.id + '">Situação</label><select id="st-' + c.id + '" data-status="' + c.id + '">' + opts(STATUS, c.status) + "</select></div>" +
-    '<div class="field"><label aria-hidden="true">&nbsp;</label><button class="btn danger" data-act="del" data-id="' + c.id + '">' + (confirmar === c.id ? "Toque de novo" : "Apagar carga") + "</button></div></div></section>";
+    '<div class="field"><label aria-hidden="true">&nbsp;</label><button class="btn danger" data-act="del" data-id="' + c.id + '">' + (confirmar === c.id ? "Toque de novo" : "Apagar carga") + "</button></div></div>" + recibosHtml(c) + "</section>";
 }
 function vAgenda() {
   const ab = D.cargas.filter(c => c.status !== "Entregue"), dia = L.diaAgenda, minhasDia = D.cargas.filter(c => c.data === dia), ids = new Set(minhasDia.map(c => c.id)), outras = D.marcas.filter(m => m.data === dia && !ids.has(m.id));
@@ -836,6 +862,10 @@ main.addEventListener("input", e => {
   if (id.startsWith("f-")) { L.form[id.slice(2)] = v;
     if (id === "f-cliente") { const cl = acharCli(v); if (cl && CAD().cidades.some(c => c.nome === cl.cidade)) { L.form.cidade = cl.cidade; document.getElementById("f-cidade").value = cl.cidade; } const sg = document.getElementById("f-sug"); if (sg) sg.innerHTML = sugCli(v); }
     salvarLocal(); updHint(); avisoErro("f-err", ""); }
+  else if (t.dataset.fretev != null) { const R = L.rascunho, gi = +t.dataset.fretev, g = grupos(R)[gi], x = parseNum(v);
+    R.entregas[g.idx[0]].freteEdit = v.trim() === "" ? null : (isFinite(x) && x >= 0 ? r2(x) : R.entregas[g.idx[0]].freteEdit); salvarLocal();
+    const f = freteGrupo(docCarga(), g), tt = document.getElementById("tot-" + gi); if (tt) tt.textContent = brl2(f.total);
+    const a = document.querySelector('[data-wa="' + gi + '"]'); if (a) a.href = waHref(dadosCli(docCarga(), g).tel, waTexto(docCarga(), g)); }
   else if (t.dataset.tel != null) { const R = L.rascunho, g = grupos(R)[+t.dataset.tel]; g.idx.forEach(i => { R.entregas[i].tel = v; }); salvarLocal();
     const a = document.querySelector('[data-wa="' + t.dataset.tel + '"]'); if (a) a.href = waHref(v, waTexto(docCarga(), g)); }
   else if (id === "busca") { buscaCli = v; const pos = t.selectionStart; render(); const b = document.getElementById("busca"); if (b) { b.focus(); b.setSelectionRange(pos, pos); } }
@@ -856,9 +886,13 @@ let timerEmpresa = null;
 main.addEventListener("change", async e => {
   const t = e.target, v = t.value;
   if (t.id === "ceramica") { L.rascunho.ceramica = v; salvarLocal(); render(); }
+  else if (t.dataset.fretev != null) render();
   else if (t.dataset.frete != null) { const R = L.rascunho; grupos(R)[+t.dataset.frete].idx.forEach(i => { R.entregas[i].freteOn = t.checked; }); salvarLocal(); render(); }
   else if (t.id.startsWith("em-")) { D.cfg.empresa[t.id.slice(3)] = v.trim(); clearTimeout(timerEmpresa); timerEmpresa = setTimeout(() => sb.from("config").upsert({ chave: "empresa", dados: D.cfg.empresa }), 300); }
-  else if (t.dataset.status) { const c = acharCarga(t.dataset.status); if (c) { c.status = v; render(); const r = await sb.from("cargas").update({ status: v }).eq("id", c.id); if (!r.error) { await carregar(); render(); sincronizarCelular(); } } }
+  else if (t.dataset.status) { const c = acharCarga(t.dataset.status); if (c) {
+    entregueAgora = v === "Entregue" ? c.id : null;
+    const mostrar = () => { const el = entregueAgora && document.getElementById("rec-" + entregueAgora); if (el) el.scrollIntoView({ block: "center", behavior: "smooth" }); };
+    c.status = v; render(); mostrar(); const r = await sb.from("cargas").update({ status: v }).eq("id", c.id); if (!r.error) { await carregar(); render(); mostrar(); sincronizarCelular(); } } }
   else if (t.dataset.pag) { const [cid_, idxs] = t.dataset.pag.split("|"), c = acharCarga(cid_); if (!c) return; await marcarPagamento(c, idxs.split(",").map(Number), v); render(); }
 });
 async function fazerLogin() {
@@ -873,7 +907,13 @@ async function fazerLogin() {
 /* congela custo e frete na hora de agendar */
 function congelar(R) {
   const c = { entregas: copia(R.entregas), ceramica: R.ceramica };
-  grupos(c).forEach(g => { const f = freteGrupo(c, g); g.idx.forEach(i => { const e = c.entregas[i], fm = e.freteMil != null ? e.freteMil : freteMil(e); e.freteMil = fm; e.frete = f.cobrado > 0 ? r2(e.mil * fm) : 0; }); });
+  grupos(c).forEach(g => {
+    const f = freteGrupo(c, g), pesos = g.idx.map(i => { const e = c.entregas[i], fm = e.freteMil != null ? e.freteMil : freteMil(e); e.freteMil = fm; return e.mil * fm; });
+    const soma = pesos.reduce((s, x) => s + x, 0), milT = g.idx.reduce((s, i) => s + c.entregas[i].mil, 0); let resto = f.cobrado;
+    g.idx.forEach((i, j) => { const e = c.entregas[i];
+      if (!(f.cobrado > 0)) { e.frete = 0; return; }
+      e.frete = j === g.idx.length - 1 ? r2(resto) : r2(f.cobrado * (soma > 0 ? pesos[j] / soma : e.mil / milT)); resto -= e.frete; });
+  });
   return c.entregas;
 }
 main.addEventListener("click", async e => {
@@ -945,6 +985,8 @@ main.addEventListener("click", async e => {
     aviso = "Carga agendada para " + diaLabel(c.data) + "." + (Agenda ? " Já está no calendário do celular." : ""); salvarLocal(); render(); window.scrollTo(0, 0);
     sincronizarCelular(); recarregarLogo();
   }
+  else if (a === "rec-carga") gerarReciboCarga(b.dataset.id, +b.dataset.g);
+  else if (a === "frete-sug") { const R = L.rascunho; R.entregas[grupos(R)[+b.dataset.g].idx[0]].freteEdit = null; salvarLocal(); render(); }
   else if (a === "comp") { comp = { gi: +b.dataset.g, tipo: b.dataset.tipo }; render(); }
   else if (a === "comp-x") { comp = null; render(); }
   else if (a === "pdf") gerarPdf(+b.dataset.g, b.dataset.tipo);
