@@ -145,12 +145,19 @@ function mapsUrl(carga) {
 }
 
 /* ---------- banco ---------- */
+/* login caiu (saiu em outro app/celular): pede pra entrar de novo em vez de seguir mostrando dados velhos sem salvar */
+async function sessaoCaiu() {
+  if (!D.perfil) return;
+  D.perfil = null; try { await sb.auth.signOut({ scope: "local" }); } catch (e) {}
+  erroRede = "Seu acesso saiu. Entre de novo."; render();
+}
 async function carregar() {
   const de = addDias(HOJE, -150), ate = addDias(HOJE, 365);
   const q = [sb.from("cargas").select("*").order("data"), sb.rpc("agenda_marcas", { de, ate }), sb.from("clientes").select("*").order("nome"), sb.from("config").select("chave,dados"), sb.from("orcamentos").select("*").order("criado_em", { ascending: false }), sb.from("profiles").select("*").eq("id", D.perfil.id).single()];
   if (ADM()) q.push(sb.from("carga_admin").select("*"), sb.from("precos_hist").select("*").order("criado_em", { ascending: false }).limit(30), sb.from("relatorios").select("*").order("numero", { ascending: false }),
-    sb.from("fin_movimentos").select("id,carga_id,tipo,valor,ignorado,categoria_id,quando,contraparte,texto,banco,origem").not("carga_id", "is", null), sb.from("fin_carga_ajudantes").select("*"), sb.from("fin_pessoas").select("id,nome,tipo,ativo,telefone"), sb.from("fin_categorias").select("id,nome"), sb.from("fin_entregas").select("*"), sb.from("carga_viagem").select("*"), sb.from("profiles").select("id,nome,admin,funcoes,pessoa_id").order("nome"));
+    sb.from("fin_movimentos").select("id,carga_id,tipo,valor,ignorado,categoria_id,quando,contraparte,texto,banco,origem").not("carga_id", "is", null), sb.from("fin_carga_ajudantes").select("*"), sb.from("fin_pessoas").select("id,nome,tipo,ativo,telefone,valor_carga"), sb.from("fin_cargas_info").select("carga_id,ajudantes_ok"), sb.from("fin_categorias").select("id,nome"), sb.from("fin_entregas").select("*"), sb.from("carga_viagem").select("*"), sb.from("profiles").select("id,nome,admin,funcoes,pessoa_id").order("nome"));
   const r = await Promise.all(q);
+  if (r.some(x => x && x.error && (x.error.status === 401 || /jwt|token/i.test(String(x.error.message || ""))))) { await sessaoCaiu(); return false; }
   if (r.slice(0, 5).some(x => x.error)) { erroRede = "Sem conexão com o servidor. Mostrando o que já estava salvo."; return false; }
   erroRede = "";
   D.cargas = (r[0].data || []).map(c => ({ ...c, salva: true, data: String(c.data).slice(0, 10), entregas: c.entregas || [] }));
@@ -164,9 +171,10 @@ async function carregar() {
     const ok = x => (x && !x.error ? x.data || [] : []);
     D.admin = {}; ok(r[6]).forEach(a => { D.admin[a.carga_id] = a; });
     D.hist = ok(r[7]); D.rels = ok(r[8]);
-    D.fin = { movs: ok(r[9]), ajud: ok(r[10]), pessoas: ok(r[11]), cats: ok(r[12]), ent: {}, viag: ok(r[14]) };
-    ok(r[13]).forEach(f => { D.fin.ent[f.carga_id + "|" + f.idx] = f; });
-    D.perfis = ok(r[15]);
+    D.fin = { movs: ok(r[9]), ajud: ok(r[10]), pessoas: ok(r[11]), info: {}, cats: ok(r[13]), ent: {}, viag: ok(r[15]) };
+    ok(r[12]).forEach(x => { D.fin.info[x.carga_id] = x; });
+    ok(r[14]).forEach(f => { D.fin.ent[f.carga_id + "|" + f.idx] = f; });
+    D.perfis = ok(r[16]);
   }
   if (TEM_CONTROLE() || (ADM() && L.verPessoa)) await carregarControle();
   gravar("tt-cache", D);
@@ -178,7 +186,7 @@ let canal = null;
 function ouvirMudancas() {
   if (canal) sb.removeChannel(canal);
   canal = sb.channel("tijolos");
-  ["cargas", "carga_admin", "clientes", "config", "orcamentos", "relatorios", "fin_movimentos", "fin_entregas", "fin_carga_ajudantes", "carga_viagem", "profiles", "func_lancamentos", "func_presenca", "func_avisos"].forEach(t => canal.on("postgres_changes", { event: "*", schema: "public", table: t }, recarregarLogo));
+  ["cargas", "carga_admin", "clientes", "config", "orcamentos", "relatorios", "fin_movimentos", "fin_entregas", "fin_carga_ajudantes", "fin_cargas_info", "carga_viagem", "profiles", "func_lancamentos", "func_presenca", "func_avisos"].forEach(t => canal.on("postgres_changes", { event: "*", schema: "public", table: t }, recarregarLogo));
   canal.subscribe();
 }
 const avisoErro = (el, msg) => { const x = document.getElementById(el); if (x) x.textContent = msg; };
@@ -363,25 +371,49 @@ const txtCarregamento = cr => {
     cr.motorista || +cr.motoristaValor > 0 ? "Motorista na carregada: " + (cr.motorista || "?") + (+cr.motoristaValor > 0 ? " (" + brl2(cr.motoristaValor) + ")" : "") : "",
     e.motorista || +e.valor > 0 ? "Motorista na entrega: " + (e.motorista || "?") + (+e.valor > 0 ? " (" + brl2(e.valor) + ")" : "") : ""].filter(Boolean).join(" · ");
 };
+/* descarga: quem descarregou e quanto cada um ganha. Fica anotada uma vez por viagem (na carga principal),
+   na mesma tabela que o Financeiro usa. Se a descarga do dia já estava lá, ela aparece preenchida e é só confirmar:
+   nunca lança duas vezes. Conta direto como ganho de cada um na ficha (gasto com funcionário já autorizado). */
+const descargaDe = v => D.fin.ajud.filter(a => v.ids.includes(a.carga_id));
+const descargaOk = v => v.ids.some(id => D.fin.info && D.fin.info[id] && D.fin.info[id].ajudantes_ok);
+const nomePessoa = id => (D.fin.pessoas.find(p => p.id === id) || {}).nome || "?";
+const txtDescarga = v => { const l = descargaDe(v); return l.length ? "Descarga: " + l.map(a => nomePessoa(a.pessoa_id) + " (" + brl2(a.valor) + ")").join(", ") : descargaOk(v) ? "Descarga: ninguém da equipe" : ""; };
+async function salvarDescarga(v, rows, ninguem) {
+  const tinha = descargaDe(v).length || descargaOk(v);
+  if (!rows.length && !ninguem && !tinha) return true; // nada a fazer
+  const d = await sb.from("fin_carga_ajudantes").delete().in("carga_id", v.ids); if (d.error) return false;
+  if (rows.length) { const i = await sb.from("fin_carga_ajudantes").upsert(rows, { onConflict: "carga_id,pessoa_id" }); if (i.error) return false; }
+  const ok = rows.length > 0 || ninguem;
+  const u = await sb.from("fin_cargas_info").upsert(v.ids.map(id => ({ carga_id: id, ajudantes_ok: ok })), { onConflict: "carga_id" }); if (u.error) return false;
+  return true;
+}
 function carregamentoHtml(c) {
   const v = viagemDe(c), cr = v.carregamento, principal = acharCarga(v.principal);
-  if (v.principal !== c.id) return '<div class="carr-box"><h3>Carregamento e motorista</h3><p class="hint">Esta carga foi junto na viagem de ' + esc(nomeCarga(principal)) + ". O carregamento e o motorista são anotados lá, uma vez só.</p>" + (cr ? '<span class="chip brick">' + esc(txtCarregamento(cr)) + "</span>" : "") + "</div>";
+  const txtDesc = txtDescarga(v);
+  if (v.principal !== c.id) return '<div class="carr-box"><h3>Carregamento, descarga e motorista</h3><p class="hint">Esta carga foi junto na viagem de ' + esc(nomeCarga(principal)) + ". Carregamento, descarga e motorista são anotados lá, uma vez só.</p>" + (cr ? '<span class="chip brick">' + esc(txtCarregamento(cr)) + "</span>" : "") + (txtDesc ? '<span class="chip brick">' + esc(txtDesc) + "</span>" : "") + "</div>";
   if (carregamentoAberto !== v.principal) {
-    return '<div class="carr-box"><h3>Carregamento e motorista' + (v.junta ? " da viagem" : "") + "</h3>" + (cr ? '<span class="chip brick" style="white-space:normal;text-align:left">' + esc(txtCarregamento(cr)) + "</span>" : '<p class="hint">Ainda não anotado.</p>') +
-      '<button class="btn small" data-act="crg-abrir" data-id="' + esc(v.principal) + '">' + (cr ? "Mudar carregamento e motorista" : "Anotar carregamento e motorista") + "</button></div>";
+    const algo = cr || txtDesc;
+    return '<div class="carr-box"><h3>Carregamento, descarga e motorista' + (v.junta ? " da viagem" : "") + "</h3>" + (cr ? '<span class="chip brick" style="white-space:normal;text-align:left">' + esc(txtCarregamento(cr)) + "</span>" : "") +
+      (txtDesc ? '<span class="chip brick" style="white-space:normal;text-align:left">' + esc(txtDesc) + "</span>" : '<p class="hint">Descarga ainda não anotada.</p>') +
+      '<button class="btn small" data-act="crg-abrir" data-id="' + esc(v.principal) + '">' + (algo ? "Mudar carregamento, descarga e motorista" : "Anotar carregamento, descarga e motorista") + "</button></div>";
   }
+  const jaDesc = descargaDe(v), psDesc = D.fin.pessoas.filter(p => p.ativo !== false || jaDesc.some(a => a.pessoa_id === p.id));
+  const descHtml = '<div class="t" style="font-weight:600;margin-top:4px">Descarga (quem descarregou)</div>' +
+    (jaDesc.length ? '<p class="hint">Já estava anotada' + (jaDesc.some(a => a.carga_id !== v.principal) ? " (em outra carga da viagem: ao salvar fica uma vez só)" : "") + '. Confira e salve: não lança de novo.</p>' : "") +
+    (psDesc.length ? psDesc.map(p => { const ja = jaDesc.find(a => a.pessoa_id === p.id); return '<label class="check" style="align-items:center"><input type="checkbox" data-desc-p="' + esc(p.id) + '"' + (ja ? " checked" : "") + '><span style="flex:1">' + esc(p.nome) + '</span><input data-desc-v="' + esc(p.id) + '" inputmode="decimal" style="width:90px" aria-label="Valor de ' + esc(p.nome) + '" value="' + numTxt(ja ? +ja.valor : (+p.valor_carga || 150)) + '"></label>'; }).join("") : '<p class="hint">Cadastre os ajudantes no Financeiro (aba Pessoas).</p>') +
+    '<label class="check"><input type="checkbox" id="desc-ninguem"' + (!jaDesc.length && descargaOk(v) ? " checked" : "") + '><span>Ninguém da equipe descarregou</span></label>';
   const x = cr || {}, forn_ = !!x.fornecedor, car = RelatorioViagem.carregadores(x), en = x.entrega || {}, lista = nomesEquipe().map(n => '<option value="' + esc(n) + '">').join("");
   const campo = (id, rot, val, ph, extra) => '<div class="field"><label for="' + id + '">' + rot + '</label><input id="' + id + '" ' + (extra || 'list="crg-nomes" autocapitalize="words"') + ' value="' + esc(val) + '" placeholder="' + ph + '"></div>';
   const din = v_ => v_ != null && v_ !== "" && +v_ > 0 ? numTxt(v_) : "";
-  return '<div class="carr-box carr"><h3>Carregamento e motorista' + (v.junta ? " da viagem (" + v.ids.length + " cargas)" : "") + '</h3><datalist id="crg-nomes">' + lista + "</datalist>" +
+  return '<div class="carr-box carr"><h3>Carregamento, descarga e motorista' + (v.junta ? " da viagem (" + v.ids.length + " cargas)" : "") + '</h3><datalist id="crg-nomes">' + lista + "</datalist>" +
     '<label class="check"><input type="checkbox" id="crg-forn"' + (forn_ ? " checked" : "") + '><span><strong>A cerâmica já providenciou o carregamento</strong><br><span class="sub">Aí não precisa dizer quem carregou nem quanto pagou.</span></span></label>' +
     '<div id="crg-campos"' + (forn_ ? " hidden" : "") + '><div class="t" style="font-weight:600;margin:4px 0">Quem carregou (até 4 pessoas)</div><div class="grid2">' +
     [0, 1, 2, 3].map(k => campo("crg-c" + k, "Pessoa " + (k + 1), car[k] || "", k ? "Opcional" : "Nome")).join("") + "</div>" +
     campo("crg-val", "Quanto paguei pelo carregamento (total)", din(x.valor), "R$", 'inputmode="decimal"') + "</div>" +
     '<div class="t" style="font-weight:600;margin-top:4px">Motorista</div><div class="grid2">' +
     campo("crg-mot", "Na carregada", x.motorista || "", "Quem foi carregar") + campo("crg-motv", "Ganhou na carregada", din(x.motoristaValor), "R$", 'inputmode="decimal"') +
-    campo("crg-ent", "Na entrega", en.motorista || "", "Quem entregou") + campo("crg-entv", "Ganhou na entrega", din(en.valor), "R$", 'inputmode="decimal"') + "</div>" +
-    '<p class="hint">Tudo isso entra uma vez só no custo da viagem e vai pro Financeiro. Quando o motorista é você, o que ele ganha vira o seu salário no resumo da semana. Se o carregamento foi pago por Pix (categoria Carregada), não soma duas vezes.</p>' +
+    campo("crg-ent", "Na entrega", en.motorista || "", "Quem entregou") + campo("crg-entv", "Ganhou na entrega", din(en.valor), "R$", 'inputmode="decimal"') + "</div>" + descHtml +
+    '<p class="hint">Tudo isso entra uma vez só no custo da viagem e vai pro Financeiro já autorizado: a descarga, a carregada e o motorista contam direto na ficha de cada um. Quando o motorista é você, o que ele ganha vira o seu salário no resumo da semana. Se o carregamento foi pago por Pix (categoria Carregada), não soma duas vezes.</p>' +
     '<p class="err" id="crg-err"></p><div class="grid2"><button class="btn ghost" data-act="crg-x">Cancelar</button><button class="btn primary" data-act="crg-salvar" data-id="' + esc(v.principal) + '">Salvar</button></div>' +
     (cr ? '<button class="btn small ghost" data-act="crg-limpar" data-id="' + esc(v.principal) + '">Apagar o que foi anotado</button>' : "") + "</div>";
 }
@@ -938,7 +970,7 @@ async function verFoto(k) {
 /* ---------- sessão ---------- */
 async function entrarComSessao(user) {
   const { data, error } = await sb.from("profiles").select("*").eq("id", user.id).single();
-  if (error || !data) { await sb.auth.signOut(); D.perfil = null; render(); return; }
+  if (error || !data) { await sb.auth.signOut({ scope: "local" }); D.perfil = null; render(); return; }
   const cache = ler("tt-cache", null);
   if (cache && cache.perfil && cache.perfil.id === data.id) D = Object.assign(vazio(), cache);
   D.perfil = data; Aparencia.aplicar(data.aparencia); render();
@@ -1050,7 +1082,15 @@ main.addEventListener("click", async e => {
       if ([val, mv, ev].some(Number.isNaN)) { avisoErro("crg-err", "Os valores têm que ser números."); return; }
       const car = forn_ ? [] : [0, 1, 2, 3].map(k => tx("crg-c" + k)).filter(Boolean);
       const mot = tx("crg-mot"), ent = tx("crg-ent");
-      if (!forn_ && !car.length && !val && !mot && !mv && !ent && !ev) { avisoErro("crg-err", "Preencha pelo menos um campo, ou marque que a cerâmica carregou."); return; }
+      const v = viagemDe(acharCarga(b.dataset.id) || { id: b.dataset.id });
+      const desc = [...document.querySelectorAll("[data-desc-p]")].filter(x => x.checked).map(x => ({ carga_id: v.principal, pessoa_id: x.dataset.descP, valor: r2(parseNum(document.querySelector('[data-desc-v="' + x.dataset.descP + '"]').value)) }));
+      if (desc.some(x => !(x.valor >= 0))) { avisoErro("crg-err", "O valor da descarga tem que ser número."); return; }
+      const ninguem = !desc.length && document.getElementById("desc-ninguem") && document.getElementById("desc-ninguem").checked;
+      const vazioCrg = !forn_ && !car.length && !val && !mot && !mv && !ent && !ev;
+      if (vazioCrg && !desc.length && !ninguem && !descargaDe(v).length) { avisoErro("crg-err", "Preencha pelo menos um campo, ou marque que a cerâmica carregou."); return; }
+      b.disabled = true;
+      if (!(await salvarDescarga(v, desc, ninguem))) { b.disabled = false; avisoErro("crg-err", "Não deu pra salvar a descarga. Confira a internet."); return; }
+      if (vazioCrg) { await carregar(); carregamentoAberto = null; abertos.add(b.dataset.id); render(); return; }
       valor = { fornecedor: forn_, carregadores: car, valor: val, motorista: mot, motoristaValor: mv, entrega: { motorista: ent, valor: ev }, em: HOJE };
     }
     b.disabled = true;
@@ -1148,7 +1188,7 @@ main.addEventListener("click", async e => {
   else if (a === "rm-prev" || a === "rm-next") { L.mesResumo = addMes(L.mesResumo, a.endsWith("next") ? 1 : -1); salvarLocal(); render(); }
   else if (a === "sair") {
     if (canal) sb.removeChannel(canal);
-    await sb.auth.signOut(); D = vazio(); gravar("tt-cache", null); L = localNovo(); salvarLocal(); render(); window.scrollTo(0, 0);
+    await sb.auth.signOut({ scope: "local" }); D = vazio(); gravar("tt-cache", null); L = localNovo(); salvarLocal(); render(); window.scrollTo(0, 0);
   }
   else if (a === "procurar-versao") { await procurarVersao(); msgCfg = novaVersao ? "Tem versão nova!" : "Você já está na versão mais nova."; render(); }
   else if (a === "atualizar-app") {
