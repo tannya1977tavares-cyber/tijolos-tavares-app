@@ -24,7 +24,7 @@ jobs:
           java-version: 21
 
       - name: Testar o relatório
-        run: node testes/relatorio.test.js
+        run: node testes/relatorio.test.js && node testes/equipe.test.js
 
       - name: Instalar dependências
         run: npm install

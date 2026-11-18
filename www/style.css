@@ -175,3 +175,20 @@ details > summary{cursor:pointer;font-weight:600;padding:6px 0}
 [hidden]{display:none!important}
 .recibos{display:flex;flex-direction:column;gap:8px;border-top:1px dashed var(--line,rgba(255,255,255,.15));padding-top:12px}
 .recibos.destaque{border:2px solid var(--ok);border-radius:12px;padding:12px}
+/* Meu Controle */
+.mc-top{display:flex;align-items:center;gap:12px}
+.mc-top img{border-radius:10px;flex:none;background:#fff}
+.mc-top h1{margin:0}
+.mc-dia{display:flex;flex-direction:column;gap:6px;padding:8px 0;border-top:1px solid var(--line)}
+.mc-dia:first-of-type{border-top:0}
+.mc-dia .t{font-weight:600}
+.seg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.seg .btn{width:100%}
+.btn[disabled]{opacity:.5}
+.mc-txt{white-space:pre-wrap;font-family:var(--body);font-size:calc(14px*var(--fs,1));margin:0;background:var(--field);border-radius:8px;padding:10px;overflow-wrap:anywhere}
+.mc-pessoas{display:flex;flex-wrap:wrap;gap:8px}
+.mc-login{display:flex;flex-direction:column;gap:10px;padding:10px;border:1px solid var(--line);border-radius:8px;margin:6px 0}
+.chk{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:calc(15px*var(--fs,1))}
+.lbl{font-size:calc(13px*var(--fs,1));font-weight:500;color:var(--muted)}
+.card.aviso{border-color:var(--brick);background:var(--brick-soft)}
+td.pos{color:var(--ok);font-weight:600} td.neg{color:var(--danger);font-weight:600}
