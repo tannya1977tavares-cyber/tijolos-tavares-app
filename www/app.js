@@ -350,22 +350,31 @@ async function salvarCarregado(k, valor) {
 }
 /* ---------- carregamento e viagem (só o administrador) ---------- */
 const nomesEquipe = () => [...new Set(D.fin.pessoas.map(p => p.nome).concat(Object.keys(LOGINS)))].sort((a, b) => a.localeCompare(b));
-const txtCarregamento = cr => cr.fornecedor ? "A cerâmica carregou" : [cr.quem ? "Carregou: " + cr.quem : "", cr.motorista ? "Motorista: " + cr.motorista : "", +cr.valor > 0 ? "Paguei " + brl2(cr.valor) : ""].filter(Boolean).join(" · ");
+const txtCarregamento = cr => {
+  const car = RelatorioViagem.carregadores(cr), e = cr.entrega || {};
+  return [cr.fornecedor ? "A cerâmica carregou" : (car.length ? "Carregou: " + car.join(", ") : ""), !cr.fornecedor && +cr.valor > 0 ? "Paguei " + brl2(cr.valor) : "",
+    cr.motorista || +cr.motoristaValor > 0 ? "Motorista na carregada: " + (cr.motorista || "?") + (+cr.motoristaValor > 0 ? " (" + brl2(cr.motoristaValor) + ")" : "") : "",
+    e.motorista || +e.valor > 0 ? "Motorista na entrega: " + (e.motorista || "?") + (+e.valor > 0 ? " (" + brl2(e.valor) + ")" : "") : ""].filter(Boolean).join(" · ");
+};
 function carregamentoHtml(c) {
   const v = viagemDe(c), cr = v.carregamento, principal = acharCarga(v.principal);
-  if (v.principal !== c.id) return '<div class="carr-box"><h3>Carregamento</h3><p class="hint">Esta carga foi junto na viagem de ' + esc(nomeCarga(principal)) + ". O carregamento é anotado lá, uma vez só.</p>" + (cr ? '<span class="chip brick">' + esc(txtCarregamento(cr)) + "</span>" : "") + "</div>";
+  if (v.principal !== c.id) return '<div class="carr-box"><h3>Carregamento e motorista</h3><p class="hint">Esta carga foi junto na viagem de ' + esc(nomeCarga(principal)) + ". O carregamento e o motorista são anotados lá, uma vez só.</p>" + (cr ? '<span class="chip brick">' + esc(txtCarregamento(cr)) + "</span>" : "") + "</div>";
   if (carregamentoAberto !== v.principal) {
-    return '<div class="carr-box"><h3>Carregamento' + (v.junta ? " da viagem" : "") + "</h3>" + (cr ? '<span class="chip brick">' + esc(txtCarregamento(cr)) + "</span>" : '<p class="hint">Ainda não anotado.</p>') +
-      '<button class="btn small" data-act="crg-abrir" data-id="' + esc(v.principal) + '">' + (cr ? "Mudar carregamento" : "Anotar carregamento") + "</button></div>";
+    return '<div class="carr-box"><h3>Carregamento e motorista' + (v.junta ? " da viagem" : "") + "</h3>" + (cr ? '<span class="chip brick" style="white-space:normal;text-align:left">' + esc(txtCarregamento(cr)) + "</span>" : '<p class="hint">Ainda não anotado.</p>') +
+      '<button class="btn small" data-act="crg-abrir" data-id="' + esc(v.principal) + '">' + (cr ? "Mudar carregamento e motorista" : "Anotar carregamento e motorista") + "</button></div>";
   }
-  const x = cr || {}, forn_ = !!x.fornecedor, lista = nomesEquipe().map(n => '<option value="' + esc(n) + '">').join("");
-  return '<div class="carr-box carr"><h3>Carregamento' + (v.junta ? " da viagem (" + v.ids.length + " cargas)" : "") + '</h3>' +
-    '<label class="check"><input type="checkbox" id="crg-forn"' + (forn_ ? " checked" : "") + '><span><strong>A cerâmica já providenciou o carregamento</strong><br><span class="sub">Marque e salve. Não precisa preencher mais nada.</span></span></label>' +
-    '<div id="crg-campos"' + (forn_ ? " hidden" : "") + '><datalist id="crg-nomes">' + lista + "</datalist>" +
-    '<div class="field"><label for="crg-quem">Quem carregou</label><input id="crg-quem" list="crg-nomes" autocapitalize="words" value="' + esc(x.quem || "") + '" placeholder="Nome de quem carregou"></div>' +
-    '<div class="field"><label for="crg-mot">Motorista que foi carregar</label><input id="crg-mot" list="crg-nomes" autocapitalize="words" value="' + esc(x.motorista || "") + '" placeholder="Nome do motorista"></div>' +
-    '<div class="field"><label for="crg-val">Quanto paguei pelo carregamento</label><input id="crg-val" inputmode="decimal" value="' + esc(x.valor != null && !forn_ ? numTxt(x.valor) : "") + '" placeholder="R$"></div>' +
-    '<p class="hint">Esse valor entra uma vez só no custo da viagem e no Financeiro. Se você pagou por Pix e o Financeiro já ligou o Pix (categoria Carregada) a essa carga, ele não soma duas vezes.</p></div>' +
+  const x = cr || {}, forn_ = !!x.fornecedor, car = RelatorioViagem.carregadores(x), en = x.entrega || {}, lista = nomesEquipe().map(n => '<option value="' + esc(n) + '">').join("");
+  const campo = (id, rot, val, ph, extra) => '<div class="field"><label for="' + id + '">' + rot + '</label><input id="' + id + '" ' + (extra || 'list="crg-nomes" autocapitalize="words"') + ' value="' + esc(val) + '" placeholder="' + ph + '"></div>';
+  const din = v_ => v_ != null && v_ !== "" && +v_ > 0 ? numTxt(v_) : "";
+  return '<div class="carr-box carr"><h3>Carregamento e motorista' + (v.junta ? " da viagem (" + v.ids.length + " cargas)" : "") + '</h3><datalist id="crg-nomes">' + lista + "</datalist>" +
+    '<label class="check"><input type="checkbox" id="crg-forn"' + (forn_ ? " checked" : "") + '><span><strong>A cerâmica já providenciou o carregamento</strong><br><span class="sub">Aí não precisa dizer quem carregou nem quanto pagou.</span></span></label>' +
+    '<div id="crg-campos"' + (forn_ ? " hidden" : "") + '><div class="t" style="font-weight:600;margin:4px 0">Quem carregou (até 4 pessoas)</div><div class="grid2">' +
+    [0, 1, 2, 3].map(k => campo("crg-c" + k, "Pessoa " + (k + 1), car[k] || "", k ? "Opcional" : "Nome")).join("") + "</div>" +
+    campo("crg-val", "Quanto paguei pelo carregamento (total)", din(x.valor), "R$", 'inputmode="decimal"') + "</div>" +
+    '<div class="t" style="font-weight:600;margin-top:4px">Motorista</div><div class="grid2">' +
+    campo("crg-mot", "Na carregada", x.motorista || "", "Quem foi carregar") + campo("crg-motv", "Ganhou na carregada", din(x.motoristaValor), "R$", 'inputmode="decimal"') +
+    campo("crg-ent", "Na entrega", en.motorista || "", "Quem entregou") + campo("crg-entv", "Ganhou na entrega", din(en.valor), "R$", 'inputmode="decimal"') + "</div>" +
+    '<p class="hint">Tudo isso entra uma vez só no custo da viagem e vai pro Financeiro. Quando o motorista é você, o que ele ganha vira o seu salário no resumo da semana. Se o carregamento foi pago por Pix (categoria Carregada), não soma duas vezes.</p>' +
     '<p class="err" id="crg-err"></p><div class="grid2"><button class="btn ghost" data-act="crg-x">Cancelar</button><button class="btn primary" data-act="crg-salvar" data-id="' + esc(v.principal) + '">Salvar</button></div>' +
     (cr ? '<button class="btn small ghost" data-act="crg-limpar" data-id="' + esc(v.principal) + '">Apagar o que foi anotado</button>' : "") + "</div>";
 }
@@ -728,10 +737,10 @@ function cargaCard(c) {
     '<div class="stat"><div class="l">Caminhão</div><div class="v" style="color:' + corOcc(r.pct) + '">' + r.pct + '%</div></div><div class="stat"><div class="l">Frete à parte</div><div class="v">' + brl(r.frete) + "</div></div>" +
     (adm ? '<div class="stat"><div class="l">Pagar na fábrica</div><div class="v">' + brl(r.custo) + '</div></div><div class="stat"><div class="l">Lucro antes da viagem</div><div class="v ' + (r.lucro >= 0 ? "pos" : "neg") + '">' + brl(r.lucro) + '</div></div><div class="stat" style="grid-column:1/-1"><div class="l">' + (liqV != null ? "Líquido da viagem (" + v.ids.length + " cargas, com gastos)" : "Líquido (com gastos)") + '</div><div class="v ' + ((liqV != null ? liqV : r.lucro - gv) >= 0 ? "pos" : "neg") + '">' + brl(liqV != null ? liqV : r.lucro - gv) + "</div></div>" : "") + "</div>" +
     (adm && c.entregas.some(temCarregado) ? '<p class="hint">Pagamento da fábrica pela quantidade carregada.</p>' : "") +
-    (adm && gv ? '<p class="hint">Gastos da viagem (descarga, abastecimento, carregamento…): ' + brl(gv) + ".</p>" : "") +
+    (adm && gv ? '<p class="hint">Gastos da viagem (descarga, abastecimento, carregamento, motorista…): ' + brl(gv) + ".</p>" : "") +
     (r.abaixo ? '<span class="chip red">' + r.abaixo + " entrega(s) abaixo do mínimo</span>" : "") +
     (c.status === "Entregue" && Camera && c.entregas.some(e => !e.foto) ? '<p class="hint">Falta a foto da entrega. Abra "Ver entregas" pra tirar.</p>' : "") +
-    "<details" + (abrir ? " open" : "") + "><summary>Ver entregas, carregamento, quantidade carregada e fotos</summary>" + (adm ? carregamentoHtml(c) + viagemHtml(c) : "") + c.entregas.map((e, i) => entregaRow(e, c, i, { pag: adm, foto: true, carregar: true })).join("") +
+    "<details" + (abrir ? " open" : "") + "><summary>Ver entregas, carregamento, motorista, quantidade carregada e fotos</summary>" + (adm ? carregamentoHtml(c) + viagemHtml(c) : "") + c.entregas.map((e, i) => entregaRow(e, c, i, { pag: adm, foto: true, carregar: true })).join("") +
       (adm ? grupos(c).map(g => '<div class="field" style="margin-bottom:8px"><label for="pg-' + c.id + "-" + g.idx[0] + '">Pagamento de ' + esc(g.nome) + '</label><select id="pg-' + c.id + "-" + g.idx[0] + '" data-pag="' + c.id + "|" + g.idx.join(",") + '">' + opts(PAGS, pagDe(c, g.idx[0])) + "</select></div>").join("") : "") + "</details>" +
     (rel ? '<button class="btn" data-act="rel" data-id="' + c.id + '" data-msg="rm-' + c.id + '">Relatório de viagem nº ' + String(rel.numero).padStart(4, "0") + ' (Excel)</button><p class="hint" id="rm-' + c.id + '"></p>' : "") +
     '<div class="grid2"><div class="field"><label for="st-' + c.id + '">Situação</label><select id="st-' + c.id + '" data-status="' + c.id + '">' + opts(STATUS, c.status) + "</select></div>" +
@@ -1021,17 +1030,18 @@ main.addEventListener("click", async e => {
   else if (a === "crg-salvar" || a === "crg-limpar") {
     let valor = null;
     if (a === "crg-salvar") {
-      if (document.getElementById("crg-forn").checked) valor = { fornecedor: true, em: HOJE };
-      else {
-        const quem = document.getElementById("crg-quem").value.trim(), mot = document.getElementById("crg-mot").value.trim(), vt = document.getElementById("crg-val").value.trim(), val = vt ? parseNum(vt) : 0;
-        if (vt && !(val >= 0)) { avisoErro("crg-err", "O valor pago tem que ser um número."); return; }
-        if (!quem && !mot && !val) { avisoErro("crg-err", "Preencha pelo menos um campo, ou marque que a cerâmica carregou."); return; }
-        valor = { quem, motorista: mot, valor: r2(val || 0), em: HOJE };
-      }
+      const tx = id => document.getElementById(id).value.trim(), forn_ = document.getElementById("crg-forn").checked;
+      const num = id => { const t = tx(id); if (!t) return 0; const n = parseNum(t); return n >= 0 ? r2(n) : NaN; };
+      const val = forn_ ? 0 : num("crg-val"), mv = num("crg-motv"), ev = num("crg-entv");
+      if ([val, mv, ev].some(Number.isNaN)) { avisoErro("crg-err", "Os valores têm que ser números."); return; }
+      const car = forn_ ? [] : [0, 1, 2, 3].map(k => tx("crg-c" + k)).filter(Boolean);
+      const mot = tx("crg-mot"), ent = tx("crg-ent");
+      if (!forn_ && !car.length && !val && !mot && !mv && !ent && !ev) { avisoErro("crg-err", "Preencha pelo menos um campo, ou marque que a cerâmica carregou."); return; }
+      valor = { fornecedor: forn_, carregadores: car, valor: val, motorista: mot, motoristaValor: mv, entrega: { motorista: ent, valor: ev }, em: HOJE };
     }
     b.disabled = true;
     if (!(await salvarCarregamento(b.dataset.id, valor))) { b.disabled = false; avisoErro("crg-err", "Não deu pra salvar. Confira a internet."); return; }
-    carregamentoAberto = null; render();
+    carregamentoAberto = null; abertos.add(b.dataset.id); render();
   }
   else if (a === "juntar-abrir") { juntando = b.dataset.id; render(); }
   else if (a === "juntar-x") { juntando = null; render(); }
