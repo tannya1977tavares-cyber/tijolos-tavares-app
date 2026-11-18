@@ -65,7 +65,7 @@ let L = Object.assign(localNovo(), ler("tt-local", {}));
 if (!L.pedido || L.pedido.step > 3) L.pedido = { step: 1, dia: null };
 if (!L.rascunho || !Array.isArray(L.rascunho.entregas)) L.rascunho = { ceramica: "anapolina", entregas: [] };
 const salvarLocal = () => gravar("tt-local", L);
-function vazio() { return { perfil: null, cargas: [], marcas: [], admin: {}, clientes: [], cfg: { minimos: {}, custos: null, empresa: {}, cadastro: null }, hist: [], orcs: [], rels: [], fin: { movs: [], ajud: [], pessoas: [], cats: [], ent: {} } }; }
+function vazio() { return { perfil: null, cargas: [], marcas: [], admin: {}, clientes: [], cfg: { minimos: {}, custos: null, empresa: {}, cadastro: null }, hist: [], orcs: [], rels: [], fin: { movs: [], ajud: [], pessoas: [], cats: [], ent: {}, viag: [] } }; }
 let D = vazio();
 let erroRede = "", novaVersao = null, atualizando = "";
 const ADM = () => !!(D.perfil && D.perfil.admin);
@@ -115,14 +115,11 @@ function resumo(c) {
   grupos(c).forEach(g => { r.frete += freteGrupo(c, g).cobrado; });
   r.receita = r.venda + r.frete; r.lucro = r.receita - r.custo; r.pct = Math.round(r.occ * 100); return r;
 }
-/* gastos da viagem que o Financeiro ligou a esta carga (só o administrador vê) */
-function gastosViagem(c) {
-  if (!ADM()) return 0;
-  const cat = id => (D.fin.cats.find(x => x.id === id) || {}).nome || "";
-  const g = D.fin.movs.filter(m => m.carga_id === c.id && m.tipo === "saida" && !m.ignorado && !/^compra de tijolo/i.test(cat(m.categoria_id))).reduce((s, m) => s + +m.valor, 0);
-  const a = D.fin.ajud.filter(x => x.carga_id === c.id).reduce((s, x) => s + +x.valor, 0);
-  return r2(g + a);
-}
+/* viagem: cargas que foram juntas no mesmo caminhão (só o administrador junta e vê os custos).
+   Descarga, diesel, comida, pedágio e carregamento são da viagem e contam uma vez só. */
+const viagemDe = c => RelatorioViagem.viagemDe(c.id, D.cargas, D.fin.viag);
+const custosDe = v => RelatorioViagem.custosViagem(v, D.fin.movs, D.fin.cats, D.fin.ajud);
+function gastosViagem(c) { return ADM() ? custosDe(viagemDe(c)).total : 0; }
 /* pagamento de cada entrega: o Financeiro sabe mais (Pix lido no banco); senão vale o que foi marcado aqui */
 function pagDe(c, i) {
   const s = D.fin.ent[c.id + "|" + i];
@@ -151,7 +148,7 @@ async function carregar() {
   const de = addDias(HOJE, -150), ate = addDias(HOJE, 365);
   const q = [sb.from("cargas").select("*").order("data"), sb.rpc("agenda_marcas", { de, ate }), sb.from("clientes").select("*").order("nome"), sb.from("config").select("chave,dados"), sb.from("orcamentos").select("*").order("criado_em", { ascending: false }), sb.from("profiles").select("*").eq("id", D.perfil.id).single()];
   if (ADM()) q.push(sb.from("carga_admin").select("*"), sb.from("precos_hist").select("*").order("criado_em", { ascending: false }).limit(30), sb.from("relatorios").select("*").order("numero", { ascending: false }),
-    sb.from("fin_movimentos").select("id,carga_id,tipo,valor,ignorado,categoria_id,quando,contraparte,texto,banco,origem").not("carga_id", "is", null), sb.from("fin_carga_ajudantes").select("*"), sb.from("fin_pessoas").select("id,nome"), sb.from("fin_categorias").select("id,nome"), sb.from("fin_entregas").select("*"));
+    sb.from("fin_movimentos").select("id,carga_id,tipo,valor,ignorado,categoria_id,quando,contraparte,texto,banco,origem").not("carga_id", "is", null), sb.from("fin_carga_ajudantes").select("*"), sb.from("fin_pessoas").select("id,nome"), sb.from("fin_categorias").select("id,nome"), sb.from("fin_entregas").select("*"), sb.from("carga_viagem").select("*"));
   const r = await Promise.all(q);
   if (r.slice(0, 5).some(x => x.error)) { erroRede = "Sem conexão com o servidor. Mostrando o que já estava salvo."; return false; }
   erroRede = "";
@@ -166,7 +163,7 @@ async function carregar() {
     const ok = x => (x && !x.error ? x.data || [] : []);
     D.admin = {}; ok(r[6]).forEach(a => { D.admin[a.carga_id] = a; });
     D.hist = ok(r[7]); D.rels = ok(r[8]);
-    D.fin = { movs: ok(r[9]), ajud: ok(r[10]), pessoas: ok(r[11]), cats: ok(r[12]), ent: {} };
+    D.fin = { movs: ok(r[9]), ajud: ok(r[10]), pessoas: ok(r[11]), cats: ok(r[12]), ent: {}, viag: ok(r[14]) };
     ok(r[13]).forEach(f => { D.fin.ent[f.carga_id + "|" + f.idx] = f; });
   }
   gravar("tt-cache", D);
@@ -178,7 +175,7 @@ let canal = null;
 function ouvirMudancas() {
   if (canal) sb.removeChannel(canal);
   canal = sb.channel("tijolos");
-  ["cargas", "carga_admin", "clientes", "config", "orcamentos", "relatorios", "fin_movimentos", "fin_entregas", "fin_carga_ajudantes", "profiles"].forEach(t => canal.on("postgres_changes", { event: "*", schema: "public", table: t }, recarregarLogo));
+  ["cargas", "carga_admin", "clientes", "config", "orcamentos", "relatorios", "fin_movimentos", "fin_entregas", "fin_carga_ajudantes", "carga_viagem", "profiles"].forEach(t => canal.on("postgres_changes", { event: "*", schema: "public", table: t }, recarregarLogo));
   canal.subscribe();
 }
 const avisoErro = (el, msg) => { const x = document.getElementById(el); if (x) x.textContent = msg; };
@@ -258,7 +255,7 @@ async function procurarVersao() {
 
 /* ---------- desenho ---------- */
 const main = document.getElementById("main");
-let entregueAgora = null, comp = null, confirmar = null, aviso = "", cadastrando = null, buscaCli = "", fotos = {}, renderPendente = false, editando = null, msgCfg = "", carregando = null;
+let entregueAgora = null, comp = null, confirmar = null, aviso = "", cadastrando = null, buscaCli = "", fotos = {}, renderPendente = false, editando = null, msgCfg = "", carregando = null, carregamentoAberto = null, juntando = null, abertos = new Set();
 
 function renderSeguro() {
   const a = document.activeElement;
@@ -350,6 +347,83 @@ async function salvarCarregado(k, valor) {
   const r = await sb.from("cargas").update({ entregas: ents }).eq("id", id);
   if (r.error) return false;
   c.entregas = ents; return true;
+}
+/* ---------- carregamento e viagem (só o administrador) ---------- */
+const nomesEquipe = () => [...new Set(D.fin.pessoas.map(p => p.nome).concat(Object.keys(LOGINS)))].sort((a, b) => a.localeCompare(b));
+const txtCarregamento = cr => cr.fornecedor ? "A cerâmica carregou" : [cr.quem ? "Carregou: " + cr.quem : "", cr.motorista ? "Motorista: " + cr.motorista : "", +cr.valor > 0 ? "Paguei " + brl2(cr.valor) : ""].filter(Boolean).join(" · ");
+function carregamentoHtml(c) {
+  const v = viagemDe(c), cr = v.carregamento, principal = acharCarga(v.principal);
+  if (v.principal !== c.id) return '<div class="carr-box"><h3>Carregamento</h3><p class="hint">Esta carga foi junto na viagem de ' + esc(nomeCarga(principal)) + ". O carregamento é anotado lá, uma vez só.</p>" + (cr ? '<span class="chip brick">' + esc(txtCarregamento(cr)) + "</span>" : "") + "</div>";
+  if (carregamentoAberto !== v.principal) {
+    return '<div class="carr-box"><h3>Carregamento' + (v.junta ? " da viagem" : "") + "</h3>" + (cr ? '<span class="chip brick">' + esc(txtCarregamento(cr)) + "</span>" : '<p class="hint">Ainda não anotado.</p>') +
+      '<button class="btn small" data-act="crg-abrir" data-id="' + esc(v.principal) + '">' + (cr ? "Mudar carregamento" : "Anotar carregamento") + "</button></div>";
+  }
+  const x = cr || {}, forn_ = !!x.fornecedor, lista = nomesEquipe().map(n => '<option value="' + esc(n) + '">').join("");
+  return '<div class="carr-box carr"><h3>Carregamento' + (v.junta ? " da viagem (" + v.ids.length + " cargas)" : "") + '</h3>' +
+    '<label class="check"><input type="checkbox" id="crg-forn"' + (forn_ ? " checked" : "") + '><span><strong>A cerâmica já providenciou o carregamento</strong><br><span class="sub">Marque e salve. Não precisa preencher mais nada.</span></span></label>' +
+    '<div id="crg-campos"' + (forn_ ? " hidden" : "") + '><datalist id="crg-nomes">' + lista + "</datalist>" +
+    '<div class="field"><label for="crg-quem">Quem carregou</label><input id="crg-quem" list="crg-nomes" autocapitalize="words" value="' + esc(x.quem || "") + '" placeholder="Nome de quem carregou"></div>' +
+    '<div class="field"><label for="crg-mot">Motorista que foi carregar</label><input id="crg-mot" list="crg-nomes" autocapitalize="words" value="' + esc(x.motorista || "") + '" placeholder="Nome do motorista"></div>' +
+    '<div class="field"><label for="crg-val">Quanto paguei pelo carregamento</label><input id="crg-val" inputmode="decimal" value="' + esc(x.valor != null && !forn_ ? numTxt(x.valor) : "") + '" placeholder="R$"></div>' +
+    '<p class="hint">Esse valor entra uma vez só no custo da viagem e no Financeiro. Se você pagou por Pix e o Financeiro já ligou o Pix (categoria Carregada) a essa carga, ele não soma duas vezes.</p></div>' +
+    '<p class="err" id="crg-err"></p><div class="grid2"><button class="btn ghost" data-act="crg-x">Cancelar</button><button class="btn primary" data-act="crg-salvar" data-id="' + esc(v.principal) + '">Salvar</button></div>' +
+    (cr ? '<button class="btn small ghost" data-act="crg-limpar" data-id="' + esc(v.principal) + '">Apagar o que foi anotado</button>' : "") + "</div>";
+}
+const nomeCarga = c => c ? c.vendedor + " · " + ordemRota(c.entregas).join(" > ") + " · " + n1(c.entregas.reduce((s, e) => s + e.mil, 0)) + " mil" : "outra carga";
+function viagemHtml(c) {
+  const v = viagemDe(c), outras = D.cargas.filter(x => x.data === c.data && !v.ids.includes(x.id));
+  let h = "";
+  if (v.junta) {
+    const cv = custosDe(v);
+    h += '<div class="viagem"><div class="t" style="font-weight:600">Mesma viagem (' + v.ids.length + " cargas, uma descarga)</div>" +
+      v.ids.filter(id => id !== c.id).map(id => '<div class="s">Junto com: ' + esc(nomeCarga(acharCarga(id))) + "</div>").join("") +
+      '<p class="hint">Descarga, abastecimento, comida, pedágio e carregamento valem pra viagem toda e contam uma vez só.</p>' +
+      (cv.ajudEmVarias ? '<p class="warnmsg">Os ajudantes estão anotados em mais de uma carga desta viagem. Abra o Financeiro e confirme os ajudantes da viagem uma vez só.</p>' : "") +
+      '<button class="btn small ghost" data-act="sep" data-id="' + esc(c.id) + '">' + (confirmar === "sep" + c.id ? "Toque de novo pra separar" : "Separar esta carga da viagem") + "</button></div>";
+  }
+  if (outras.length) {
+    h += juntando === c.id ? '<div class="viagem"><div class="t" style="font-weight:600">Juntar na mesma viagem</div><p class="hint">Escolha a carga que foi no mesmo caminhão. A descarga e o abastecimento passam a ser lançados uma vez só.</p>' +
+      outras.map(o => '<button class="btn full" data-act="juntar" data-id="' + esc(c.id) + '" data-com="' + esc(o.id) + '">' + esc(nomeCarga(o)) + "</button>").join("") +
+      '<button class="btn small ghost" data-act="juntar-x">Cancelar</button></div>'
+      : '<button class="btn small" data-act="juntar-abrir" data-id="' + esc(c.id) + '">Juntar com outra carga deste dia (mesma viagem)</button>';
+  }
+  return h;
+}
+const alertaRede = () => { erroRede = "Não deu pra salvar. Confira a internet e tente de novo."; render(); };
+async function juntarCargas(aId, bId) {
+  const a = acharCarga(aId), b = acharCarga(bId); if (!a || !b) return false;
+  const va = viagemDe(a), vb = viagemDe(b), chave = va.principal;
+  const rows = [...new Set(va.ids.concat(vb.ids))].map(id => ({ carga_id: id, viagem: chave, atualizado_em: new Date().toISOString() }));
+  const r = await sb.from("carga_viagem").upsert(rows, { onConflict: "carga_id" });
+  if (r.error) return false;
+  /* o carregamento da outra viagem vem junto se esta ainda não tinha */
+  if (!va.carregamento && vb.carregamento) {
+    await sb.from("carga_viagem").update({ carregamento: vb.carregamento }).eq("carga_id", chave);
+    await sb.from("carga_viagem").update({ carregamento: null }).eq("carga_id", vb.principal);
+  }
+  await carregar(); return true;
+}
+async function separarCarga(id) {
+  const c = acharCarga(id); if (!c) return false;
+  const v = viagemDe(c), resto = v.ids.filter(x => x !== id);
+  if (v.principal === id && resto.length) {
+    /* a principal saiu: a próxima carga vira a principal e leva o carregamento da viagem */
+    const nova = resto.slice().sort()[0];
+    const r = await sb.from("carga_viagem").upsert(resto.map(x => ({ carga_id: x, viagem: nova, atualizado_em: new Date().toISOString() })), { onConflict: "carga_id" });
+    if (r.error) return false;
+    if (v.carregamento) { await sb.from("carga_viagem").update({ carregamento: v.carregamento }).eq("carga_id", nova); }
+    await sb.from("carga_viagem").update({ viagem: id, carregamento: null }).eq("carga_id", id);
+  } else {
+    const r = await sb.from("carga_viagem").update({ viagem: id }).eq("carga_id", id); if (r.error) return false;
+  }
+  if (resto.length === 1) await sb.from("carga_viagem").update({ viagem: resto[0] }).eq("carga_id", resto[0]);
+  await carregar(); return true;
+}
+async function salvarCarregamento(principalId, valor) {
+  const v = viagemDe(acharCarga(principalId) || { id: principalId });
+  const r = await sb.from("carga_viagem").upsert({ carga_id: principalId, viagem: v.junta ? v.chave : principalId, carregamento: valor, atualizado_em: new Date().toISOString() }, { onConflict: "carga_id" });
+  if (r.error) return false;
+  await carregar(); return true;
 }
 function fotoHtml(c, i) {
   const e = c.entregas[i], k = c.id + "|" + i;
@@ -614,7 +688,8 @@ function recibosHtml(c) {
 function dadosRelatorio(c) {
   const rel = D.rels.find(r => r.carga_id === c.id), fin = {};
   c.entregas.forEach((e, i) => { if (D.fin.ent[c.id + "|" + i]) fin[i] = D.fin.ent[c.id + "|" + i]; });
-  return RelatorioViagem.dadosDe({ numero: rel ? rel.numero : "", carga: c, custos: (D.admin[c.id] || {}).custos || [], pags: c.entregas.map((e, i) => pagDe(c, i)), fin, cadastro: CAD(), movs: D.fin.movs, cats: D.fin.cats, ajudantes: D.fin.ajud, pessoas: D.fin.pessoas });
+  return RelatorioViagem.dadosDe({ numero: rel ? rel.numero : "", carga: c, custos: (D.admin[c.id] || {}).custos || [], pags: c.entregas.map((e, i) => pagDe(c, i)), fin, cadastro: CAD(), movs: D.fin.movs, cats: D.fin.cats, ajudantes: D.fin.ajud, pessoas: D.fin.pessoas,
+    cargas: D.cargas, vinculos: D.fin.viag, numeroDe: id => (D.rels.find(r => r.carga_id === id) || {}).numero });
 }
 async function abrirRelatorio(cargaId, msgId) {
   const c = acharCarga(cargaId), msg = t => { const el = document.getElementById(msgId); if (el) el.textContent = t; };
@@ -642,18 +717,21 @@ function pedidosHtml(c, adm) {
 function aReceber(c) { return grupos(c).reduce((s, g) => s + (pagDe(c, g.idx[0]) === "Pago" ? 0 : freteGrupo(c, g).total), 0); }
 function cargaCard(c) {
   const r = resumo(c), st = c.status === "Entregue" ? "green" : c.status === "Carregada" ? "amber" : "brick", adm = ADM(), rel = adm && D.rels.find(x => x.carga_id === c.id);
-  const gv = gastosViagem(c), falta = adm ? aReceber(c) : r.receita, abrir = c.entregas.some((e, i) => fotos[c.id + "|" + i] || carregando === c.id + "|" + i);
+  const gv = gastosViagem(c), falta = adm ? aReceber(c) : r.receita, v = adm ? viagemDe(c) : null;
+  const abrir = c.entregas.some((e, i) => fotos[c.id + "|" + i] || carregando === c.id + "|" + i) || (v && (carregamentoAberto === v.principal || juntando === c.id || confirmar === "sep" + c.id || abertos.has(c.id)));
+  /* viagem com várias cargas: o líquido é da viagem toda (custos uma vez só) */
+  const liqV = v && v.junta ? r2(v.ids.map(acharCarga).filter(Boolean).reduce((s, x) => s + resumo(x).lucro, 0) - gv) : null;
   return '<section class="card"><div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start"><div style="min-width:0"><h3>' + esc(c.vendedor) + " · " + n1(r.mil) + ' mil</h3><div class="hint">' + esc(forn(c.ceramica).nome) + "</div></div>" +
     '<span class="chip ' + st + '">' + esc(c.status) + "</span></div>" + rotaHtml(c, true) +
     pedidosHtml(c, adm) +
     '<div class="stats"><div class="stat"><div class="l">Total da carga</div><div class="v">' + brl(r.receita) + '</div></div><div class="stat"><div class="l">A receber</div><div class="v" style="color:' + (falta > 0 ? "var(--warn)" : "var(--ok)") + '">' + brl(falta) + "</div></div>" +
     '<div class="stat"><div class="l">Caminhão</div><div class="v" style="color:' + corOcc(r.pct) + '">' + r.pct + '%</div></div><div class="stat"><div class="l">Frete à parte</div><div class="v">' + brl(r.frete) + "</div></div>" +
-    (adm ? '<div class="stat"><div class="l">Pagar na fábrica</div><div class="v">' + brl(r.custo) + '</div></div><div class="stat"><div class="l">Lucro antes da viagem</div><div class="v ' + (r.lucro >= 0 ? "pos" : "neg") + '">' + brl(r.lucro) + '</div></div><div class="stat" style="grid-column:1/-1"><div class="l">Líquido (com gastos)</div><div class="v ' + (r.lucro - gv >= 0 ? "pos" : "neg") + '">' + brl(r.lucro - gv) + "</div></div>" : "") + "</div>" +
+    (adm ? '<div class="stat"><div class="l">Pagar na fábrica</div><div class="v">' + brl(r.custo) + '</div></div><div class="stat"><div class="l">Lucro antes da viagem</div><div class="v ' + (r.lucro >= 0 ? "pos" : "neg") + '">' + brl(r.lucro) + '</div></div><div class="stat" style="grid-column:1/-1"><div class="l">' + (liqV != null ? "Líquido da viagem (" + v.ids.length + " cargas, com gastos)" : "Líquido (com gastos)") + '</div><div class="v ' + ((liqV != null ? liqV : r.lucro - gv) >= 0 ? "pos" : "neg") + '">' + brl(liqV != null ? liqV : r.lucro - gv) + "</div></div>" : "") + "</div>" +
     (adm && c.entregas.some(temCarregado) ? '<p class="hint">Pagamento da fábrica pela quantidade carregada.</p>' : "") +
-    (adm && gv ? '<p class="hint">Gastos da viagem lidos pelo Financeiro: ' + brl(gv) + ".</p>" : "") +
+    (adm && gv ? '<p class="hint">Gastos da viagem (descarga, abastecimento, carregamento…): ' + brl(gv) + ".</p>" : "") +
     (r.abaixo ? '<span class="chip red">' + r.abaixo + " entrega(s) abaixo do mínimo</span>" : "") +
     (c.status === "Entregue" && Camera && c.entregas.some(e => !e.foto) ? '<p class="hint">Falta a foto da entrega. Abra "Ver entregas" pra tirar.</p>' : "") +
-    "<details" + (abrir ? " open" : "") + "><summary>Ver entregas, quantidade carregada e fotos</summary>" + c.entregas.map((e, i) => entregaRow(e, c, i, { pag: adm, foto: true, carregar: true })).join("") +
+    "<details" + (abrir ? " open" : "") + "><summary>Ver entregas, carregamento, quantidade carregada e fotos</summary>" + (adm ? carregamentoHtml(c) + viagemHtml(c) : "") + c.entregas.map((e, i) => entregaRow(e, c, i, { pag: adm, foto: true, carregar: true })).join("") +
       (adm ? grupos(c).map(g => '<div class="field" style="margin-bottom:8px"><label for="pg-' + c.id + "-" + g.idx[0] + '">Pagamento de ' + esc(g.nome) + '</label><select id="pg-' + c.id + "-" + g.idx[0] + '" data-pag="' + c.id + "|" + g.idx.join(",") + '">' + opts(PAGS, pagDe(c, g.idx[0])) + "</select></div>").join("") : "") + "</details>" +
     (rel ? '<button class="btn" data-act="rel" data-id="' + c.id + '" data-msg="rm-' + c.id + '">Relatório de viagem nº ' + String(rel.numero).padStart(4, "0") + ' (Excel)</button><p class="hint" id="rm-' + c.id + '"></p>' : "") +
     '<div class="grid2"><div class="field"><label for="st-' + c.id + '">Situação</label><select id="st-' + c.id + '" data-status="' + c.id + '">' + opts(STATUS, c.status) + "</select></div>" +
@@ -885,7 +963,8 @@ main.addEventListener("mousedown", e => { if (e.target.closest(".sug button")) e
 let timerEmpresa = null;
 main.addEventListener("change", async e => {
   const t = e.target, v = t.value;
-  if (t.id === "ceramica") { L.rascunho.ceramica = v; salvarLocal(); render(); }
+  if (t.id === "crg-forn") { const cp = document.getElementById("crg-campos"); if (cp) cp.hidden = t.checked; }
+  else if (t.id === "ceramica") { L.rascunho.ceramica = v; salvarLocal(); render(); }
   else if (t.dataset.fretev != null) render();
   else if (t.dataset.frete != null) { const R = L.rascunho; grupos(R)[+t.dataset.frete].idx.forEach(i => { R.entregas[i].freteOn = t.checked; }); salvarLocal(); render(); }
   else if (t.id.startsWith("em-")) { D.cfg.empresa[t.id.slice(3)] = v.trim(); clearTimeout(timerEmpresa); timerEmpresa = setTimeout(() => sb.from("config").upsert({ chave: "empresa", dados: D.cfg.empresa }), 300); }
@@ -936,6 +1015,30 @@ main.addEventListener("click", async e => {
     if (cl && CAD().cidades.some(c => c.nome === cl.cidade)) { L.form.cidade = cl.cidade; const fc = document.getElementById("f-cidade"); if (fc) fc.value = cl.cidade; }
     const sg = document.getElementById("f-sug"); if (sg) sg.innerHTML = ""; salvarLocal(); updHint();
     const fm = document.getElementById("f-mil"); if (fm) fm.focus();
+  }
+  else if (a === "crg-abrir") { carregamentoAberto = b.dataset.id; render(); const f = document.getElementById("crg-forn"); if (f) f.scrollIntoView({ block: "center" }); }
+  else if (a === "crg-x") { carregamentoAberto = null; render(); }
+  else if (a === "crg-salvar" || a === "crg-limpar") {
+    let valor = null;
+    if (a === "crg-salvar") {
+      if (document.getElementById("crg-forn").checked) valor = { fornecedor: true, em: HOJE };
+      else {
+        const quem = document.getElementById("crg-quem").value.trim(), mot = document.getElementById("crg-mot").value.trim(), vt = document.getElementById("crg-val").value.trim(), val = vt ? parseNum(vt) : 0;
+        if (vt && !(val >= 0)) { avisoErro("crg-err", "O valor pago tem que ser um número."); return; }
+        if (!quem && !mot && !val) { avisoErro("crg-err", "Preencha pelo menos um campo, ou marque que a cerâmica carregou."); return; }
+        valor = { quem, motorista: mot, valor: r2(val || 0), em: HOJE };
+      }
+    }
+    b.disabled = true;
+    if (!(await salvarCarregamento(b.dataset.id, valor))) { b.disabled = false; avisoErro("crg-err", "Não deu pra salvar. Confira a internet."); return; }
+    carregamentoAberto = null; render();
+  }
+  else if (a === "juntar-abrir") { juntando = b.dataset.id; render(); }
+  else if (a === "juntar-x") { juntando = null; render(); }
+  else if (a === "juntar") { abertos.add(b.dataset.id); abertos.add(b.dataset.com); b.disabled = true; const ok = await juntarCargas(b.dataset.id, b.dataset.com); juntando = null; render(); if (!ok) alertaRede(); }
+  else if (a === "sep") {
+    const id = b.dataset.id; if (confirmar !== "sep" + id) { confirmar = "sep" + id; render(); return; }
+    confirmar = null; abertos.add(id); b.disabled = true; const ok = await separarCarga(id); render(); if (!ok) alertaRede();
   }
   else if (a === "carr-abrir") { carregando = b.dataset.k; render(); const f = document.getElementById("cr-fi"); if (f) { f.scrollIntoView({ block: "center" }); } }
   else if (a === "carr-x") { carregando = null; render(); }
