@@ -19,7 +19,8 @@ const Notif = plugin("LocalNotifications"), Camera = plugin("Camera"), FS = plug
 Aparencia.iniciar("tijolos", ["--brick", "--brick-soft", "--on-brick"]);
 
 /* ---------- dados fixos ---------- */
-const LOGINS = { Bruno: "bruno@tijolostavares.app", Rafael: "rafael@tijolostavares.app", Wolney: "wolney@tijolostavares.app" };
+/* login = nome da pessoa; o e-mail interno sai do nome (Bruno -> bruno@tijolostavares.app). Logins novos: Configurações > Equipe e logins */
+const NOMES_LOGIN = ["Bruno", "Rafael", "Wolney", "Fabinho"];
 const REG = { 1: "Anápolis", 2: "Goiânia e região", 3: "Brasília" };
 const REG_CENTRO = { 1: { lat: -16.3281, lng: -48.9534 }, 2: { lat: -16.6869, lng: -49.2648 }, 3: { lat: -15.7939, lng: -47.8828 } };
 const FRETE_PADRAO = { 1: [30, 50], 2: [40, 60], 3: [50, 75] };
@@ -65,7 +66,7 @@ let L = Object.assign(localNovo(), ler("tt-local", {}));
 if (!L.pedido || L.pedido.step > 3) L.pedido = { step: 1, dia: null };
 if (!L.rascunho || !Array.isArray(L.rascunho.entregas)) L.rascunho = { ceramica: "anapolina", entregas: [] };
 const salvarLocal = () => gravar("tt-local", L);
-function vazio() { return { perfil: null, cargas: [], marcas: [], admin: {}, clientes: [], cfg: { minimos: {}, custos: null, empresa: {}, cadastro: null }, hist: [], orcs: [], rels: [], fin: { movs: [], ajud: [], pessoas: [], cats: [], ent: {}, viag: [] } }; }
+function vazio() { return { perfil: null, cargas: [], marcas: [], admin: {}, clientes: [], cfg: { minimos: {}, custos: null, empresa: {}, cadastro: null }, hist: [], orcs: [], rels: [], fin: { movs: [], ajud: [], pessoas: [], cats: [], ent: {}, viag: [] }, mc: null, perfis: [] }; }
 let D = vazio();
 let erroRede = "", novaVersao = null, atualizando = "";
 const ADM = () => !!(D.perfil && D.perfil.admin);
@@ -148,7 +149,7 @@ async function carregar() {
   const de = addDias(HOJE, -150), ate = addDias(HOJE, 365);
   const q = [sb.from("cargas").select("*").order("data"), sb.rpc("agenda_marcas", { de, ate }), sb.from("clientes").select("*").order("nome"), sb.from("config").select("chave,dados"), sb.from("orcamentos").select("*").order("criado_em", { ascending: false }), sb.from("profiles").select("*").eq("id", D.perfil.id).single()];
   if (ADM()) q.push(sb.from("carga_admin").select("*"), sb.from("precos_hist").select("*").order("criado_em", { ascending: false }).limit(30), sb.from("relatorios").select("*").order("numero", { ascending: false }),
-    sb.from("fin_movimentos").select("id,carga_id,tipo,valor,ignorado,categoria_id,quando,contraparte,texto,banco,origem").not("carga_id", "is", null), sb.from("fin_carga_ajudantes").select("*"), sb.from("fin_pessoas").select("id,nome"), sb.from("fin_categorias").select("id,nome"), sb.from("fin_entregas").select("*"), sb.from("carga_viagem").select("*"));
+    sb.from("fin_movimentos").select("id,carga_id,tipo,valor,ignorado,categoria_id,quando,contraparte,texto,banco,origem").not("carga_id", "is", null), sb.from("fin_carga_ajudantes").select("*"), sb.from("fin_pessoas").select("id,nome,tipo,ativo,telefone"), sb.from("fin_categorias").select("id,nome"), sb.from("fin_entregas").select("*"), sb.from("carga_viagem").select("*"), sb.from("profiles").select("id,nome,admin,funcoes,pessoa_id").order("nome"));
   const r = await Promise.all(q);
   if (r.slice(0, 5).some(x => x.error)) { erroRede = "Sem conexão com o servidor. Mostrando o que já estava salvo."; return false; }
   erroRede = "";
@@ -165,17 +166,19 @@ async function carregar() {
     D.hist = ok(r[7]); D.rels = ok(r[8]);
     D.fin = { movs: ok(r[9]), ajud: ok(r[10]), pessoas: ok(r[11]), cats: ok(r[12]), ent: {}, viag: ok(r[14]) };
     ok(r[13]).forEach(f => { D.fin.ent[f.carga_id + "|" + f.idx] = f; });
+    D.perfis = ok(r[15]);
   }
+  if (TEM_CONTROLE() || (ADM() && L.verPessoa)) await carregarControle();
   gravar("tt-cache", D);
   return true;
 }
 let timerRecarga = null;
-function recarregarLogo() { clearTimeout(timerRecarga); timerRecarga = setTimeout(async () => { await carregar(); renderSeguro(); sincronizarCelular(); }, 500); }
+function recarregarLogo() { clearTimeout(timerRecarga); timerRecarga = setTimeout(async () => { await carregar(); renderSeguro(); sincronizarCelular(); await resumoAutomatico(); notificarAvisos(); }, 500); }
 let canal = null;
 function ouvirMudancas() {
   if (canal) sb.removeChannel(canal);
   canal = sb.channel("tijolos");
-  ["cargas", "carga_admin", "clientes", "config", "orcamentos", "relatorios", "fin_movimentos", "fin_entregas", "fin_carga_ajudantes", "carga_viagem", "profiles"].forEach(t => canal.on("postgres_changes", { event: "*", schema: "public", table: t }, recarregarLogo));
+  ["cargas", "carga_admin", "clientes", "config", "orcamentos", "relatorios", "fin_movimentos", "fin_entregas", "fin_carga_ajudantes", "carga_viagem", "profiles", "func_lancamentos", "func_presenca", "func_avisos"].forEach(t => canal.on("postgres_changes", { event: "*", schema: "public", table: t }, recarregarLogo));
   canal.subscribe();
 }
 const avisoErro = (el, msg) => { const x = document.getElementById(el); if (x) x.textContent = msg; };
@@ -238,6 +241,7 @@ async function agendarLembretes() {
       if (manha > agora) lista.push({ id: n * 10 + 1, title: "Entregas de hoje", body: corpo, schedule: { at: manha } });
       if (vespera > agora) lista.push({ id: n * 10 + 2, title: "Entregas de amanhã", body: corpo, schedule: { at: vespera } });
     });
+    lista.push(...lembreteSexta());
     if (lista.length) await Notif.schedule({ notifications: lista });
   } catch (e) {}
 }
@@ -268,14 +272,17 @@ function render() {
   const nav = document.getElementById("nav"), ub = document.getElementById("cfgbtn");
   if (!D.perfil) { nav.hidden = true; ub.hidden = true; main.innerHTML = vLogin(); return; }
   nav.hidden = false; ub.hidden = false; ub.setAttribute("aria-pressed", L.tab === "config");
-  const tabs = [["pedido", "Pedido"], ["agenda", "Agenda"], ["clientes", "Clientes"], ["ferramentas", "Ferramentas"]];
+  /* abas por função: vendedor vê pedidos, agenda e clientes; carga, descarga e motorista veem o Meu Controle e as Ferramentas */
+  const tabs = VENDE() ? [["pedido", "Pedido"], ["agenda", "Agenda"], ["clientes", "Clientes"], ["ferramentas", "Ferramentas"]] : [["ferramentas", "Ferramentas"]];
+  if (TEM_CONTROLE() && !ADM()) tabs.splice(VENDE() ? 4 : 0, 0, ["controle", "Meu Controle"]);
   if (ADM()) tabs.push(["painel", "Painel"]);
-  if (L.tab !== "config" && !tabs.some(t => t[0] === L.tab)) L.tab = "pedido";
+  const avisosNovos = !ADM() && D.mc ? (D.mc.avisos || []).filter(a => !a.lido_em).length : 0;
+  if (L.tab !== "config" && !tabs.some(t => t[0] === L.tab) && !(ADM() && L.tab === "controle")) L.tab = tabs[0][0];
   const abertas = D.cargas.filter(c => c.status !== "Entregue").length;
-  document.getElementById("tabs").innerHTML = tabs.map(([k, l]) => '<button data-tab="' + k + '" aria-current="' + (k === L.tab ? "page" : "false") + '">' + l + (k === "agenda" && abertas ? '<span class="n">' + abertas + "</span>" : "") + "</button>").join("");
+  document.getElementById("tabs").innerHTML = tabs.map(([k, l]) => '<button data-tab="' + k + '" aria-current="' + (k === L.tab ? "page" : "false") + '">' + l + (k === "agenda" && abertas ? '<span class="n">' + abertas + "</span>" : "") + (k === "controle" && avisosNovos ? '<span class="n">' + avisosNovos + "</span>" : "") + "</button>").join("");
   const topo = (erroRede ? '<div class="banner" role="status">' + esc(erroRede) + "</div>" : "") +
     (novaVersao && L.tab !== "config" ? '<button class="banner novo" data-act="ir-config">Versão nova do app (1.0.' + novaVersao.n + "). Toque pra atualizar.</button>" : "");
-  main.innerHTML = topo + ({ pedido: vPedido, agenda: vAgenda, clientes: vClientes, ferramentas: vFerramentas, painel: vPainel, config: vConfig })[L.tab]();
+  main.innerHTML = topo + ({ pedido: vPedido, agenda: vAgenda, clientes: vClientes, ferramentas: vFerramentas, painel: vPainel, controle: vControle, config: vConfig })[L.tab]();
   if (L.tab === "pedido" && L.pedido.step === 1) updHint();
 }
 const opts = (list, sel) => list.map(v => '<option value="' + esc(v) + '"' + (v === sel ? " selected" : "") + ">" + esc(v) + "</option>").join("");
@@ -349,7 +356,7 @@ async function salvarCarregado(k, valor) {
   c.entregas = ents; return true;
 }
 /* ---------- carregamento e viagem (só o administrador) ---------- */
-const nomesEquipe = () => [...new Set(D.fin.pessoas.map(p => p.nome).concat(Object.keys(LOGINS)))].sort((a, b) => a.localeCompare(b));
+const nomesEquipe = () => [...new Set(D.fin.pessoas.map(p => p.nome).concat((D.perfis || []).map(x => x.nome)))].sort((a, b) => a.localeCompare(b));
 const txtCarregamento = cr => {
   const car = RelatorioViagem.carregadores(cr), e = cr.entrega || {};
   return [cr.fornecedor ? "A cerâmica carregou" : (car.length ? "Carregou: " + car.join(", ") : ""), !cr.fornecedor && +cr.valor > 0 ? "Paguei " + brl2(cr.valor) : "",
@@ -447,7 +454,7 @@ function fotoHtml(c, i) {
 /* ---------- login ---------- */
 function vLogin() {
   return '<div style="display:flex;justify-content:center"><img src="icon.png" alt="" width="96" height="96"></div><h1 style="text-align:center">Entrar</h1>' +
-    '<section class="card"><div class="field"><label for="lg-nome">Usuário</label><select id="lg-nome">' + opts(Object.keys(LOGINS), ler("tt-ultimo", "Bruno")) + "</select></div>" +
+    '<section class="card"><div class="field"><label for="lg-nome">Seu nome</label><input id="lg-nome" list="lg-nomes" autocomplete="username" autocapitalize="words" value="' + esc(ler("tt-ultimo", "")) + '"><datalist id="lg-nomes">' + [...new Set(NOMES_LOGIN.concat(ler("tt-nomes", [])))].map(n => '<option value="' + esc(n) + '">').join("") + "</datalist></div>" +
     '<div class="field"><label for="lg-senha">Senha</label><input id="lg-senha" type="password" autocomplete="current-password"></div><p class="err" id="login-err"></p>' +
     '<button class="btn primary full" data-act="login">Entrar</button></section>';
 }
@@ -807,6 +814,9 @@ function vFerramentas() {
 
 /* ---------- painel do administrador ---------- */
 function vPainel() {
+  return equipePainelHtml() + vPainelResumo();
+}
+function vPainelResumo() {
   const mes = L.mesResumo, entregue = c => c.status === "Entregue", doMesTodas = D.cargas.filter(c => c.data.slice(0, 7) === mes), doMes = doMesTodas.filter(entregue), pv = {};
   const pend = doMesTodas.filter(c => !entregue(c)), pendMil = pend.reduce((s, c) => s + c.entregas.reduce((a, e) => a + e.mil, 0), 0); const T = { n: 0, mil: 0, venda: 0, frete: 0, lucro: 0, gastos: 0 };
   doMes.forEach(c => { const r = resumo(c), g = gastosViagem(c), x = pv[c.vendedor] = pv[c.vendedor] || { n: 0, mil: 0, venda: 0, frete: 0, lucro: 0 }; [x, T].forEach(o => { o.n++; o.mil += r.mil; o.venda += r.venda; o.frete += r.frete; o.lucro += r.lucro; }); T.gastos += g; });
@@ -882,9 +892,9 @@ function vConfig() {
       '<section class="card"><h2>Dados da empresa</h2><p class="hint">Saem no orçamento e no recibo.</p>' +
       '<div class="grid2"><div class="field"><label for="em-end">Endereço</label><input id="em-end" value="' + esc(E.end) + '"></div><div class="field"><label for="em-cidade">Cidade</label><input id="em-cidade" value="' + esc(E.cidade) + '"></div>' +
       '<div class="field"><label for="em-tel">WhatsApp</label><input id="em-tel" inputmode="tel" value="' + esc(E.tel) + '"></div><div class="field"><label for="em-cnpj">CNPJ (opcional)</label><input id="em-cnpj" value="' + esc(E.cnpj) + '"></div></div>' +
-      '<div class="field"><label for="em-email">E-mail</label><input id="em-email" inputmode="email" value="' + esc(E.email) + '"></div></section>' +
+      '<div class="field"><label for="em-email">E-mail</label><input id="em-email" inputmode="email" value="' + esc(E.email) + '"></div></section>' + loginsHtml() +
       '<section class="card"><h2>Histórico de preço</h2>' + (D.hist.length ? "<div>" + D.hist.map((h, i) => '<div class="row"><div><div class="t">' + esc(new Date(h.criado_em).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })) + '</div><div class="s">Custo do 09x19x19 na Anapolina: ' + (((h.custos || {}).anapolina || {})["09x19x19"] != null ? brl(h.custos.anapolina["09x19x19"]) : "–") + '</div></div><button class="btn small" data-act="hist-usar" data-i="' + i + '">' + (confirmar === "h" + i ? "Toque de novo" : "Voltar pra esta") + "</button></div>").join("") + "</div>" : '<p class="hint">Cada vez que você salvar preços, a versão anterior fica aqui.</p>') + "</section>" : "") +
-    '<section class="card"><h2>Conta</h2><p>' + esc(D.perfil.nome) + (ADM() ? " · administrador" : " · vendedor") + "</p>" +
+    '<section class="card"><h2>Conta</h2><p>' + esc(D.perfil.nome) + (ADM() ? " · administrador" : " · " + esc(nomeFuncoes(FUNCS()).toLowerCase())) + "</p>" +
     '<p class="hint">Versão do app: 1.0.' + (window.VERSAO_APP || 0) + "</p>" +
     (novaVersao ? '<div class="okmsg">Tem versão nova (1.0.' + novaVersao.n + ').</div><button class="btn primary full" data-act="atualizar-app">Atualizar agora</button>' + (atualizando ? '<p class="hint">' + esc(atualizando) + "</p>" : "") : (NATIVO ? '<button class="btn" data-act="procurar-versao">Procurar atualização</button>' : "")) +
     '<button class="btn" data-act="sair">Sair</button></section>';
@@ -933,6 +943,7 @@ async function entrarComSessao(user) {
   if (cache && cache.perfil && cache.perfil.id === data.id) D = Object.assign(vazio(), cache);
   D.perfil = data; Aparencia.aplicar(data.aparencia); render();
   await carregar(); render(); ouvirMudancas();
+  resumoAutomatico().then(() => { notificarAvisos(); render(); });
   procurarVersao().then(() => { if (novaVersao) render(); });
   if (NATIVO) { await pedirPermissoesCelular(); sincronizarCelular(); if (L.tab === "agenda") avisoAgendaCelular(); }
 }
@@ -984,12 +995,13 @@ main.addEventListener("change", async e => {
   else if (t.dataset.pag) { const [cid_, idxs] = t.dataset.pag.split("|"), c = acharCarga(cid_); if (!c) return; await marcarPagamento(c, idxs.split(",").map(Number), v); render(); }
 });
 async function fazerLogin() {
-  const n = document.getElementById("lg-nome").value, p = document.getElementById("lg-senha").value, b = main.querySelector('[data-act="login"]');
+  const n = document.getElementById("lg-nome").value.trim(), p = document.getElementById("lg-senha").value, b = main.querySelector('[data-act="login"]');
+  if (!n) { avisoErro("login-err", "Digite o seu nome."); return; }
   if (!p) { avisoErro("login-err", "Digite a senha."); return; }
   b.disabled = true; b.textContent = "Entrando…";
-  const { data, error } = await sb.auth.signInWithPassword({ email: LOGINS[n], password: p });
-  if (error) { b.disabled = false; b.textContent = "Entrar"; avisoErro("login-err", /invalid/i.test(error.message) ? "Senha errada. Confira e tente de novo." : "Sem conexão. Confira a internet."); return; }
-  gravar("tt-ultimo", n); L = localNovo(); L.tab = n === "Bruno" ? "agenda" : "pedido"; salvarLocal();
+  const { data, error } = await sb.auth.signInWithPassword({ email: loginEmail(n), password: p });
+  if (error) { b.disabled = false; b.textContent = "Entrar"; avisoErro("login-err", /invalid/i.test(error.message) ? "Nome ou senha errados. Confira e tente de novo." : "Sem conexão. Confira a internet."); return; }
+  gravar("tt-ultimo", n); lembrarNome(n); L = localNovo(); L.tab = norm(n) === "bruno" ? "agenda" : "pedido"; salvarLocal();
   await entrarComSessao(data.user);
 }
 /* congela custo e frete na hora de agendar */
@@ -1008,6 +1020,8 @@ main.addEventListener("click", async e => {
   const nova = Aparencia.clique(e.target);
   if (nova) { sb.rpc("salvar_aparencia", { a: nova }).then(() => {}); if (D.perfil) D.perfil.aparencia = nova; render(); return; }
   const b = e.target.closest("[data-act]"); if (!b) return; const a = b.dataset.act;
+  if (a.startsWith("mc-")) { await mcClique(a, b); return; }
+  if (a.startsWith("lg-") && await loginClique(a, b)) return;
   if (a === "login") fazerLogin();
   else if (a === "ir-config") { L.tab = "config"; render(); window.scrollTo(0, 0); }
   else if (a === "add") {
