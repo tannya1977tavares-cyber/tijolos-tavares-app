@@ -192,3 +192,4 @@ details > summary{cursor:pointer;font-weight:600;padding:6px 0}
 .lbl{font-size:calc(13px*var(--fs,1));font-weight:500;color:var(--muted)}
 .card.aviso{border-color:var(--brick);background:var(--brick-soft)}
 td.pos{color:var(--ok);font-weight:600} td.neg{color:var(--danger);font-weight:600}
+.mc-senha{display:flex;gap:8px}.mc-senha input{flex:1;font-family:monospace;letter-spacing:2px}
