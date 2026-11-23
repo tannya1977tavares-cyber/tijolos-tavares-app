@@ -267,7 +267,7 @@ async function procurarVersao() {
 
 /* ---------- desenho ---------- */
 const main = document.getElementById("main");
-let entregueAgora = null, comp = null, confirmar = null, aviso = "", cadastrando = null, buscaCli = "", fotos = {}, renderPendente = false, editando = null, msgCfg = "", carregando = null, carregamentoAberto = null, juntando = null, abertos = new Set();
+let entregueAgora = null, comp = null, confirmar = null, aviso = "", cadastrando = null, buscaCli = "", fotos = {}, renderPendente = false, editando = null, msgCfg = "", carregando = null, carregamentoAberto = null, juntando = null, abertos = new Set(), reagendando = null;
 
 function renderSeguro() {
   const a = document.activeElement;
@@ -782,13 +782,34 @@ function cargaCard(c) {
     "<details" + (abrir ? " open" : "") + "><summary>Ver entregas, carregamento, motorista, quantidade carregada e fotos</summary>" + (adm ? carregamentoHtml(c) + viagemHtml(c) : "") + c.entregas.map((e, i) => entregaRow(e, c, i, { pag: adm, foto: true, carregar: true })).join("") +
       (adm ? grupos(c).map(g => '<div class="field" style="margin-bottom:8px"><label for="pg-' + c.id + "-" + g.idx[0] + '">Pagamento de ' + esc(g.nome) + '</label><select id="pg-' + c.id + "-" + g.idx[0] + '" data-pag="' + c.id + "|" + g.idx.join(",") + '">' + opts(PAGS, pagDe(c, g.idx[0])) + "</select></div>").join("") : "") + "</details>" +
     (rel ? '<button class="btn" data-act="rel" data-id="' + c.id + '" data-msg="rm-' + c.id + '">Relatório de viagem nº ' + String(rel.numero).padStart(4, "0") + ' (Excel)</button><p class="hint" id="rm-' + c.id + '"></p>' : "") +
+    reagendarHtml(c) +
     '<div class="grid2"><div class="field"><label for="st-' + c.id + '">Situação</label><select id="st-' + c.id + '" data-status="' + c.id + '">' + opts(STATUS, c.status) + "</select></div>" +
     '<div class="field"><label aria-hidden="true">&nbsp;</label><button class="btn danger" data-act="del" data-id="' + c.id + '">' + (confirmar === c.id ? "Toque de novo" : "Apagar carga") + "</button></div></div>" + recibosHtml(c) + "</section>";
+}
+/* reagendar: muda o dia da carga inteira (todas as entregas dela) */
+function reagendarHtml(c) {
+  if (c.status === "Entregue") return "";
+  const R = reagendando && reagendando.id === c.id ? reagendando : null;
+  if (!R) return '<button class="btn full" data-act="rg-abrir" data-id="' + esc(c.id) + '">Reagendar entrega</button>';
+  const dia = R.dia, doDia = dia ? D.marcas.filter(m => m.data === dia && m.id !== c.id) : [], junta = ADM() && viagemDe(c).junta;
+  return '<div class="carr-box"><h3>Reagendar entrega</h3><p class="hint">Hoje está marcada para ' + esc(diaLabel(c.data)) + ". Toque no novo dia.</p>" +
+    calendario(R.mes, dia, "rg", true) +
+    (dia && dia !== c.data ? '<h3 style="margin-top:10px">Já marcado em ' + esc(diaLabel(dia)) + "</h3>" + (doDia.length ? "<div>" + doDia.map(linhaMarca).join("") + "</div>" : '<p class="hint">Nenhuma outra entrega nesse dia.</p>') : "") +
+    (junta ? '<p class="warnmsg">Esta carga está junta com outra na mesma viagem. Ao reagendar, ela sai da viagem e a outra continua em ' + esc(diaCurto(c.data)) + ".</p>" : "") +
+    '<p class="err" id="rg-err"></p><div class="grid2"><button class="btn ghost" data-act="rg-x">Cancelar</button><button class="btn primary" data-act="rg-salvar" data-id="' + esc(c.id) + '"' + (dia && dia !== c.data ? "" : " disabled") + ">" + (dia && dia !== c.data ? "Mudar para " + esc(diaCurto(dia)) : "Escolha o dia") + "</button></div></div>";
+}
+async function reagendarCarga(id, novo) {
+  const c = acharCarga(id); if (!c) return false;
+  /* juntar na viagem é coisa do mesmo dia: mudou o dia, sai da viagem */
+  if (ADM() && viagemDe(c).junta && !(await separarCarga(id))) return false;
+  const r = await sb.from("cargas").update({ data: novo }).eq("id", id);
+  if (r.error) return false;
+  await carregar(); return true;
 }
 function vAgenda() {
   const ab = D.cargas.filter(c => c.status !== "Entregue"), dia = L.diaAgenda, minhasDia = D.cargas.filter(c => c.data === dia), ids = new Set(minhasDia.map(c => c.id)), outras = D.marcas.filter(m => m.data === dia && !ids.has(m.id));
   let t = { mil: 0, v: 0 }; ab.forEach(c => { const r = resumo(c); t.mil += r.mil; t.v += ADM() ? r.lucro : r.receita; });
-  return (Agenda ? '<div id="agenda-aviso"></div>' : "") +
+  return (Agenda ? '<div id="agenda-aviso"></div>' : "") + (aviso ? '<div class="okmsg" role="status" style="margin-bottom:12px">' + esc(aviso) + "</div>" : "") +
     '<section class="card"><div class="stats"><div class="stat"><div class="l">Cargas em aberto</div><div class="v">' + ab.length + '</div></div><div class="stat"><div class="l">Milheiros</div><div class="v">' + n1(t.mil) + "</div></div>" +
     '<div class="stat" style="grid-column:1/-1"><div class="l">' + (ADM() ? "Lucro em aberto" : "Total em aberto") + '</div><div class="v">' + brl(t.v) + "</div></div></div></section>" +
     '<section class="card">' + calendario(L.calAgenda, dia, "ac", false) + "</section>" +
@@ -1139,6 +1160,19 @@ main.addEventListener("click", async e => {
   }
   else if (a === "orc-del") { const id = b.dataset.id; if (confirmar !== "del" + id) { confirmar = "del" + id; render(); return; } confirmar = null; await sb.from("orcamentos").delete().eq("id", id); D.orcs = D.orcs.filter(x => x.id !== id); render(); }
   else if (a === "pc-prev" || a === "pc-next") { L.calPedido = addMes(L.calPedido, a.endsWith("next") ? 1 : -1); salvarLocal(); render(); }
+  else if (a === "rg-abrir") { const c = acharCarga(b.dataset.id); if (!c) return; reagendando = { id: c.id, mes: c.data.slice(0, 7), dia: null }; aviso = ""; render(); }
+  else if (a === "rg-x") { reagendando = null; render(); }
+  else if (a === "rg-prev" || a === "rg-next") { if (!reagendando) return; reagendando.mes = addMes(reagendando.mes, a.endsWith("next") ? 1 : -1); render(); }
+  else if (a === "rg-dia") { if (!reagendando || b.dataset.d < HOJE) return; reagendando.dia = b.dataset.d; render(); }
+  else if (a === "rg-salvar") {
+    const R = reagendando; if (!R || !R.dia) return;
+    b.disabled = true; b.textContent = "Mudando…";
+    const ok = await reagendarCarga(R.id, R.dia);
+    if (!ok) { b.disabled = false; b.textContent = "Mudar para " + diaCurto(R.dia); avisoErro("rg-err", "Não deu pra reagendar. Confira a internet e tente de novo."); return; }
+    reagendando = null; L.diaAgenda = R.dia; L.calAgenda = R.dia.slice(0, 7);
+    aviso = "Entrega reagendada para " + diaLabel(R.dia) + "." + (Agenda ? " O calendário do celular também foi atualizado." : "");
+    salvarLocal(); render(); window.scrollTo(0, 0); sincronizarCelular();
+  }
   else if (a === "pc-dia") { if (b.dataset.d < HOJE) return; L.pedido.dia = b.dataset.d; salvarLocal(); render(); }
   else if (a === "agendar") {
     if (!L.pedido.dia) { avisoErro("a-err", "Toque no dia da entrega no calendário."); return; }
@@ -1158,7 +1192,7 @@ main.addEventListener("click", async e => {
   else if (a === "comp-x") { comp = null; render(); }
   else if (a === "pdf") gerarPdf(+b.dataset.g, b.dataset.tipo);
   else if (a === "ac-prev" || a === "ac-next") { L.calAgenda = addMes(L.calAgenda, a.endsWith("next") ? 1 : -1); salvarLocal(); render(); }
-  else if (a === "ac-dia") { L.diaAgenda = b.dataset.d; confirmar = null; salvarLocal(); render(); avisoAgendaCelular(); }
+  else if (a === "ac-dia") { L.diaAgenda = b.dataset.d; confirmar = null; aviso = ""; reagendando = null; salvarLocal(); render(); avisoAgendaCelular(); }
   else if (a === "liberar-agenda") { try { const r = await Agenda.pedirPermissao(); if (r.ok) { document.getElementById("agenda-aviso").innerHTML = ""; sincronizarAgenda(); } } catch (err) {} }
   else if (a === "del") {
     if (confirmar !== b.dataset.id) { confirmar = b.dataset.id; render(); return; }
