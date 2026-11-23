@@ -1004,8 +1004,8 @@ async function iniciar() { const { data } = await sb.auth.getSession(); if (data
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && D.perfil) { HOJE = ymd(new Date()); recarregarLogo(); } });
 
 /* ---------- eventos ---------- */
-document.getElementById("tabs").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; L.tab = b.dataset.tab; confirmar = null; aviso = ""; cadastrando = null; editando = null; msgCfg = ""; salvarLocal(); render(); window.scrollTo(0, 0); if (L.tab === "agenda") avisoAgendaCelular(); });
-document.getElementById("cfgbtn").addEventListener("click", () => { L.tab = L.tab === "config" ? "pedido" : "config"; confirmar = null; editando = null; msgCfg = ""; salvarLocal(); render(); window.scrollTo(0, 0); });
+document.getElementById("tabs").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; L.tab = b.dataset.tab; confirmar = null; aviso = ""; cadastrando = null; editando = null; msgCfg = ""; loginNovo = null; salvarLocal(); render(); window.scrollTo(0, 0); if (L.tab === "agenda") avisoAgendaCelular(); });
+document.getElementById("cfgbtn").addEventListener("click", () => { L.tab = L.tab === "config" ? "pedido" : "config"; confirmar = null; editando = null; msgCfg = ""; loginNovo = null; salvarLocal(); render(); window.scrollTo(0, 0); });
 document.addEventListener("click", e => { const a = e.target.closest('a[target="_blank"]'); if (a && NATIVO) { e.preventDefault(); window.location.href = a.href; } });
 
 main.addEventListener("input", e => {

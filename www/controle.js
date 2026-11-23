@@ -6,7 +6,7 @@
    Usa as funções e o estado do app.js (D, L, esc, brl...). */
 
 const EQ = window.Equipe;
-let mcMsg = "", mcErro = "", mcConfirm = null, mcCarregando = false, loginMsg = "", loginEditando = null;
+let mcMsg = "", mcErro = "", mcConfirm = null, mcCarregando = false, loginMsg = "", loginEditando = null, loginNovo = null;
 
 /* ---------- quem pode o quê ---------- */
 const funcoesDe = p => (p && Array.isArray(p.funcoes) ? p.funcoes : ["vendedor"]);
@@ -130,17 +130,28 @@ function loginsHtml() {
   const form = (x) => {
     const fs = x ? funcoesDe(x) : [], id = x ? x.id : "novo";
     return '<div class="mc-login">' + (x ? "" : '<div class="field"><label for="lg-n-' + id + '">Nome do login</label><input id="lg-n-' + id + '" placeholder="Ex.: Fabinho"></div>') +
-      '<div class="field"><label for="lg-s-' + id + '">' + (x ? "Nova senha (deixe vazio pra manter)" : "Senha") + '</label><input id="lg-s-' + id + '" type="password" autocomplete="new-password"></div>' +
+      '<div class="field"><label for="lg-s-' + id + '">' + (x ? "Senha nova (deixe vazio pra manter a atual)" : "Senha") + '</label><div class="mc-senha"><input id="lg-s-' + id + '" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn small" data-act="lg-gerar" data-id="' + id + '">Gerar</button></div></div>' +
       '<div class="field"><span class="lbl">Funções</span>' + Object.keys(EQ.FUNCOES).map(f => '<label class="chk"><input type="checkbox" id="lg-f-' + id + "-" + f + '"' + (fs.includes(f) ? " checked" : "") + "> " + esc(EQ.FUNCOES[f]) + "</label>").join("") + "</div>" +
       '<div class="field"><label for="lg-p-' + id + '">Cadastro no Financeiro (de onde sai o controle dele)</label><select id="lg-p-' + id + '"><option value="">Nenhum</option>' + optsObj(ps.map(p => [p.id, p.nome + (p.tipo === "vendedor" ? " (vendedor)" : "")]), x ? x.pessoa_id || "" : "") + "</select></div>" +
       '<p class="err" id="lg-e-' + id + '"></p><button class="btn primary" data-act="lg-salvar" data-id="' + id + '">' + (x ? "Salvar" : "Criar login") + "</button>" + (x ? ' <button class="btn ghost" data-act="lg-x">Cancelar</button>' : "") + "</div>";
   };
   return '<section class="card"><h2>Equipe e logins</h2><p class="hint">Cada funcionário entra com o nome e a senha dele e só vê o que a função libera. Vendedor vê pedidos, agenda e clientes; carga, descarga e motorista veem o Meu Controle e as Ferramentas. Pra pôr alguém como vendedor com salário, mude o cadastro dele no Financeiro.</p>' +
-    (loginMsg ? '<div class="okmsg" role="status">' + esc(loginMsg) + "</div>" : "") +
+    (loginMsg ? '<div class="okmsg" role="status">' + esc(loginMsg) + "</div>" : "") + loginNovoHtml() +
+    '<p class="hint">A senha atual de ninguém aparece: o sistema guarda ela embaralhada e ninguém consegue ler, nem você. Se alguém esquecer, toque em <b>Senha</b>, gere ou digite uma nova e salve. Ela aparece aqui uma vez pra você passar pro funcionário.</p>' +
     perfis.map(x => { const pe = ps.find(p => p.id === x.pessoa_id);
-      return '<div class="row"><div style="min-width:0"><div class="t">' + esc(x.nome) + '</div><div class="s">' + esc(nomeFuncoes(funcoesDe(x)) || "Sem função") + " · " + (pe ? "controle: " + esc(pe.nome) : "sem cadastro ligado") + '</div></div><button class="btn small" data-act="lg-editar" data-id="' + x.id + '">Mudar</button></div>' + (loginEditando === x.id ? form(x) : ""); }).join("") +
+      return '<div class="row"><div style="min-width:0"><div class="t">' + esc(x.nome) + '</div><div class="s">Usuário: <b>' + esc(x.nome) + "</b> · " + esc(nomeFuncoes(funcoesDe(x)) || "Sem função") + " · " + (pe ? "controle: " + esc(pe.nome) : "sem cadastro ligado") + '</div></div><button class="btn small" data-act="lg-editar" data-id="' + x.id + '">Senha / mudar</button></div>' + (loginEditando === x.id ? form(x) : ""); }).join("") +
     "<details" + (loginEditando === "novo" ? " open" : "") + '><summary>Criar login novo</summary>' + form(null) + "</details></section>";
 }
+
+/* login e senha nova que o Bruno acabou de pôr: mostra uma vez (some ao sair da tela), com botão pro WhatsApp */
+function loginNovoHtml() {
+  if (!loginNovo) return "";
+  const txt = "Seu login no app da Tijolos Tavares:\nUsuário: " + loginNovo.nome + "\nSenha: " + loginNovo.senha;
+  return '<div class="card aviso" role="status"><div class="t">Passe pro ' + esc(loginNovo.nome) + '</div><p>Usuário: <b>' + esc(loginNovo.nome) + '</b><br>Senha: <b>' + esc(loginNovo.senha) + '</b></p>' +
+    '<a class="btn primary" target="_blank" rel="noopener" href="' + esc(waHref(loginNovo.tel, txt)) + '">Mandar no WhatsApp</a> <button class="btn ghost" data-act="lg-ok">Já passei</button>' +
+    '<p class="hint">Depois que sair desta tela, a senha não aparece mais.</p></div>';
+}
+const gerarSenha = () => { const a = new Uint32Array(1); (window.crypto || {}).getRandomValues ? crypto.getRandomValues(a) : (a[0] = Math.random() * 1e9); return String(1000 + a[0] % 9000); };
 
 /* ---------- ações ---------- */
 async function mcClique(a, b) {
@@ -178,6 +189,8 @@ async function mcClique(a, b) {
 async function loginClique(a, b) {
   if (a === "lg-editar") { loginEditando = loginEditando === b.dataset.id ? null : b.dataset.id; loginMsg = ""; render(); return true; }
   if (a === "lg-x") { loginEditando = null; render(); return true; }
+  if (a === "lg-ok") { loginNovo = null; render(); return true; }
+  if (a === "lg-gerar") { const i = document.getElementById("lg-s-" + b.dataset.id); if (i) i.value = gerarSenha(); return true; }
   if (a !== "lg-salvar") return false;
   const id = b.dataset.id, val = k => (document.getElementById("lg-" + k + "-" + id) || {}).value || "";
   const fs = Object.keys(EQ.FUNCOES).filter(f => (document.getElementById("lg-f-" + id + "-" + f) || {}).checked), pessoa = val("p") || null, senha = val("s");
@@ -189,14 +202,15 @@ async function loginClique(a, b) {
     const nome = val("n").trim(); if (!nome) { b.disabled = false; avisoErro("lg-e-" + id, "Digite o nome."); return true; }
     if (!senha) { b.disabled = false; avisoErro("lg-e-" + id, "Digite a senha."); return true; }
     r = await sb.rpc("criar_login", { p_nome: nome, p_senha: senha, p_funcoes: fs, p_pessoa: pessoa });
-    if (!r.error) { loginMsg = "Login criado. " + nome + " entra com o nome \"" + nome + "\" e a senha que você digitou."; lembrarNome(nome); }
+    if (!r.error) { loginMsg = "Login criado."; loginNovo = { nome, senha, tel: telDe(pessoa) }; lembrarNome(nome); }
   } else {
     r = await sb.rpc("mudar_login", { p_id: id, p_senha: senha || null, p_funcoes: fs, p_pessoa: pessoa });
-    if (!r.error) loginMsg = "Login atualizado." + (senha ? " Senha nova valendo." : "");
+    if (!r.error) { const x = (D.perfis || []).find(y => y.id === id); loginMsg = "Login atualizado." + (senha ? " Senha nova valendo." : ""); loginNovo = senha && x ? { nome: x.nome, senha, tel: telDe(pessoa) } : null; }
   }
   if (r.error) { b.disabled = false; avisoErro("lg-e-" + id, /existe/i.test(r.error.message) ? "Já existe um login com esse nome." : "Não deu certo: " + r.error.message); return true; }
   loginEditando = null; await carregar(); render(); return true;
 }
+const telDe = id => ((D.fin.pessoas || []).find(p => p.id === id) || {}).telefone || "";
 const lembrarNome = n => { const l = ler("tt-nomes", []); if (!l.some(x => norm(x) === norm(n))) { l.push(n); gravar("tt-nomes", l); } };
 
 /* ---------- avisos e notificações ---------- */
