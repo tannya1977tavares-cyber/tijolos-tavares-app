@@ -115,7 +115,7 @@ begin
     'cargas', coalesce((select jsonb_agg(jsonb_build_object('id', c.id, 'data', c.data, 'vendedor', c.vendedor, 'status', c.status,
         'entregas', case when lower(c.vendedor) = lower(p.nome) then (select coalesce(jsonb_agg(jsonb_build_object('mil', e->'mil', 'preco', e->'preco', 'frete', e->'frete')), '[]') from jsonb_array_elements(c.entregas) e) else '[]'::jsonb end))
       from public.cargas c where c.id in (select carga_id from public.fin_carga_ajudantes where pessoa_id = pid)
-        or c.id in (select v.carga_id from public.carga_viagem v where lower(coalesce(v.carregamento::text, '')) like '%' || nomes[1] || '%')
+        or c.id in (select v.carga_id from public.carga_viagem v where v.viagem in (select v2.viagem from public.carga_viagem v2 where lower(coalesce(v2.carregamento::text, '')) like '%' || nomes[1] || '%'))
         or lower(c.vendedor) = lower(p.nome)), '[]'),
     'movs', coalesce((select jsonb_agg(jsonb_build_object('id', m.id, 'tipo', m.tipo, 'valor', m.valor, 'quando', m.quando, 'pessoa_id', m.pessoa_id, 'ignorado', m.ignorado, 'banco', m.banco, 'contraparte', m.contraparte) order by m.quando)
       from public.fin_movimentos m where m.pessoa_id = pid and m.tipo = 'saida' and not coalesce(m.ignorado, false)), '[]'),
