@@ -852,7 +852,8 @@ function vFerramentas() {
   const rows = L.calc.map((l, i) => { const m = med(l.medida), f = Math.ceil(l.mil * 1000 / m.pf); tf += f; occ += f / m.fiadas;
     return '<div class="row"><div><div class="t">' + esc(l.medida) + " · " + n1(l.mil) + ' mil</div><div class="s">' + f + " fiadas · " + m.pf + ' por fiada</div></div><button class="btn small" data-act="crm" data-i="' + i + '">Remover</button></div>'; }).join("");
   const p = Math.round(occ * 100), fm = v => v != null ? brl(v) : "–", C = D.cfg.custos || {};
-  return '<section class="card"><h2>Calculadora de fiadas</h2><div class="grid2"><div class="field"><label for="c-mil">Milheiros</label><input id="c-mil" inputmode="decimal" placeholder="5"></div>' +
+  return '<section class="card"><h2>Orçamento rápido</h2><p class="hint">Cole o pedido do WhatsApp e mande o PDF pro cliente.</p><a class="btn full" href="rapido.html" style="text-decoration:none;text-align:center">Abrir orçamento rápido</a></section>' +
+    '<section class="card"><h2>Calculadora de fiadas</h2><div class="grid2"><div class="field"><label for="c-mil">Milheiros</label><input id="c-mil" inputmode="decimal" placeholder="5"></div>' +
     '<div class="field"><label for="c-medida">Medida</label><select id="c-medida">' + opts(CAD().medidas.map(m => m.nome), "09x19x19") + '</select></div></div><p class="err" id="calc-err"></p>' +
     '<button class="btn full" data-act="cadd">Calcular e somar na carga</button>' + (rows ? "<div>" + rows + "</div>" : "") +
     '<div class="stats"><div class="stat"><div class="l">Total de fiadas</div><div class="v">' + tf + '</div></div><div class="stat"><div class="l">Caminhão</div><div class="v" style="color:' + corOcc(p) + '">' + p + "%</div></div></div>" +

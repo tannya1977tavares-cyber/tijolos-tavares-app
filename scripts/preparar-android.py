@@ -5,7 +5,7 @@ raiz = pathlib.Path(__file__).resolve().parent.parent
 app = raiz / "android" / "app" / "src" / "main"
 pacote = app / "java" / "br" / "com" / "tijolostavares" / "app"
 pacote.mkdir(parents=True, exist_ok=True)
-for nome in ("AgendaCelularPlugin.java", "AtualizadorPlugin.java", "MainActivity.java"):
+for nome in ("AgendaCelularPlugin.java", "AtualizadorPlugin.java", "WhatsEnviarPlugin.java", "OrcamentoWidget.java", "MainActivity.java"):
     shutil.copy(raiz / "native" / nome, pacote / nome)
 
 manifesto = app / "AndroidManifest.xml"
@@ -18,6 +18,22 @@ perms = [
 ]
 extra = "".join(f'    <uses-permission android:name="{p}" />\n' for p in perms if p not in txt)
 txt = txt.replace("</manifest>", extra + "</manifest>")
+# widget da tela inicial (orçamento rápido)
+if "OrcamentoWidget" not in txt:
+    txt = txt.replace("</application>", """        <receiver android:name=".OrcamentoWidget" android:exported="false" android:label="Orçamento Tijolos">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/orcamento_widget_info" />
+        </receiver>
+    </application>""")
+# deixa o app achar o WhatsApp pra anexar o PDF direto na conversa
+if "<queries>" not in txt:
+    txt = txt.replace("<application", """<queries>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+    </queries>
+    <application""", 1)
 manifesto.write_text(txt, encoding="utf-8")
 
 res = app / "res"

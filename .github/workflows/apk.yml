@@ -3,6 +3,9 @@ name: Gerar APK
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "morais/**"
+      - ".github/workflows/apk-morais.yml"
   workflow_dispatch:
 
 permissions:
