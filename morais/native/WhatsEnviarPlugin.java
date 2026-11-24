@@ -41,7 +41,11 @@ public class WhatsEnviarPlugin extends Plugin {
             if (d.length() == 10 || d.length() == 11) d = "55" + d;
             boolean foi = false;
             if (!soCompartilhar) {
-                for (String pkg : new String[]{"com.whatsapp", "com.whatsapp.w4b"}) {
+                // qual WhatsApp usar: o Business (com.whatsapp.w4b) ou o normal (com.whatsapp)
+                String[] ordem = "business".equals(call.getString("app", "normal"))
+                        ? new String[]{"com.whatsapp.w4b", "com.whatsapp"}
+                        : new String[]{"com.whatsapp", "com.whatsapp.w4b"};
+                for (String pkg : ordem) {
                     if (!instalado(pkg)) continue;
                     Intent w = new Intent(i);
                     w.setPackage(pkg);

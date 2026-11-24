@@ -136,6 +136,7 @@ input:focus,select:focus,textarea:focus,button:focus-visible,summary:focus-visib
 <div class="row"><div><label for="num">Número</label><input id="num"></div><div><label for="dt">Data</label><input id="dt"></div></div>
 <div id="pagBox" hidden><label for="pag">Forma de pagamento</label><select id="pag"><option>Pix</option><option>Dinheiro</option><option>Cartão</option><option>Transferência</option><option value="">Não informar</option></select></div>
 <label for="obs">Observação (opcional)</label><input id="obs" placeholder="Ex.: entrega na sexta de manhã">
+<label for="wapp">Mandar pelo</label><select id="wapp"><option value="business">WhatsApp Business</option><option value="normal">WhatsApp</option></select>
 <button class="btn w wpp" id="bWpp" type="button">Enviar no WhatsApp</button>
 <p class="note">Abre a conversa do cliente no WhatsApp com o PDF já anexado e a mensagem pronta.</p>
 <button class="btn alt w" type="button" id="bPdf">Salvar ou mandar por outro app</button>
@@ -348,7 +349,7 @@ function contar(){const n=parseInt($("num").value)||0;ls.set("mt_n_"+doc,Math.ma
 function wppHref(){let t=$("cTel").value.replace(/\D/g,"");if(t.length===10||t.length===11)t="55"+t;else if(!(t.length>=12&&t.startsWith("55")))t="";
  return "https://wa.me/"+t+"?text="+encodeURIComponent(texto()+"\n\nSegue o PDF "+(doc==="O"?"do orçamento":"do recibo")+".")}
 async function enviar(outro){if(!pronto())return;const d=pdf(),nome=nomeArq(),txt=texto()+"\n\nSegue o PDF "+(doc==="O"?"do orçamento":"do recibo")+".";
- if(WE){try{const r=await WE.enviar({pdf:d.output("datauristring").split(",")[1],nome,tel:$("cTel").value,texto:outro?"":txt,compartilhar:!!outro});contar();
+ if(WE){try{const r=await WE.enviar({pdf:d.output("datauristring").split(",")[1],nome,tel:$("cTel").value,texto:outro?"":txt,compartilhar:!!outro,app:$("wapp").value});contar();
    msg(outro?"Escolha onde salvar ou mandar o PDF.":(r&&r.whatsapp?"PDF anexado na conversa do WhatsApp. É só tocar em enviar.":"WhatsApp não encontrado: escolha onde mandar o PDF."))}
   catch(e){msg("Não deu pra mandar o PDF. Tente de novo.")}return}
  d.save(nome);contar();if(!outro)window.open(wppHref(),"_blank");msg(`PDF ${nome} salvo.`)}
@@ -357,6 +358,7 @@ $("dO").onclick=()=>{setDoc("O");enviar(false)};$("dR").onclick=()=>{setDoc("R")
 async function colar(){try{let t="";if(CB){const r=await CB.read();t=(r&&r.value)||""}else if(navigator.clipboard&&navigator.clipboard.readText){t=await navigator.clipboard.readText()}
  if(t&&t.trim()){$("paste").value=t;onPaste();$("s1").open=true}else{$("paste").focus()}}catch(e){$("paste").focus()}}
 $("bColar").onclick=colar;
+$("wapp").value=ls.get("wapp","normal");$("wapp").onchange=()=>ls.set("wapp",$("wapp").value);
 function rota(){if(location.hash==="#colar"){history.replaceState(null,"",location.pathname);$("s1").open=true;setTimeout(colar,350)}}
 window.addEventListener("hashchange",rota);
 $("bNovo").onclick=()=>{items=[];["paste","cNome","cCpf","cTel","cEnd","obs"].forEach(id=>$(id).value="");$("chips").innerHTML="";$("prev").hidden=true;$("msg").style.display="none";$("city").value="Anápolis";cityChange();setDoc(doc);draw();document.querySelectorAll(".step").forEach((s,i)=>s.open=i===0);window.scrollTo({top:0,behavior:"smooth"})};
