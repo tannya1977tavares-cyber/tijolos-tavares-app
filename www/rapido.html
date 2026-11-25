@@ -106,6 +106,7 @@ input:focus,select:focus,textarea:focus,button:focus-visible,summary:focus-visib
 
 <details class="step" id="s3"><summary><span class="n">3</span><span><span class="st">Tijolos</span><span class="sm" id="s3s">Medidas e quantidades</span></span></summary>
 <div class="body">
+<div id="addBox">
 <div class="seg" role="group" aria-label="Produto" hidden><button type="button" id="tT" aria-pressed="true">Tijolo</button><button type="button" id="tA" aria-pressed="false">Areia</button></div>
 <div id="pA" hidden>
 <label for="aTipo">Areia</label><select id="aTipo"></select>
@@ -121,11 +122,15 @@ input:focus,select:focus,textarea:focus,button:focus-visible,summary:focus-visib
 <p class="note" id="tNote"></p><p class="warn" id="tWarn" hidden></p>
 <button class="btn w" type="button" id="tAdd">Adicionar tijolo</button>
 </div>
+</div>
 <div class="items" id="items"></div>
+<button class="btn alt w" type="button" id="bMais" hidden>+ Adicionar outro produto</button>
 <div id="freteBox">
 <div hidden><input type="checkbox" id="fA"><input id="fKm" value="0"></div>
-<label class="chk"><input type="checkbox" id="fT" checked> Cobrar frete do tijolo à parte</label>
+<label class="chk"><input type="checkbox" id="fT" checked> <span id="fTl">Cobrar frete do tijolo à parte</span></label>
 <p class="note" id="fNote">Igual ao app Tijolos Tavares: carga fechada não paga frete; carga que não fecha paga à parte.</p>
+<label for="fV">Valor do frete (pode mudar)</label><input id="fV" type="number" inputmode="decimal" min="0" step="0.01">
+<p class="note" id="fSug"></p>
 </div>
 <button class="btn w" type="button" data-next="s4">Continuar</button>
 </div></details>
@@ -222,8 +227,11 @@ $("aTipo").addEventListener("change",aSel);$("tMed").addEventListener("change",t
 function setProd(p){prod=p;$("tA").setAttribute("aria-pressed",p==="A");$("tT").setAttribute("aria-pressed",p==="T");$("pA").hidden=p!=="A";$("pT").hidden=p!=="T"}
 $("tA").onclick=()=>setProd("A");$("tT").onclick=()=>setProd("T");
 $("aAdd").onclick=()=>{const a=AREIAS[$("aTipo").value],q=Math.max(1,Math.round(num($("aQtd").value))),v=num($("aVal").value);if(!v)return;items.push({k:"A",d:a[0],m3:a[1],q,v});draw()};
+$("bMais").onclick=()=>{maisAberto=true;draw();$("addBox").scrollIntoView({behavior:"smooth",block:"center"})};
 $("tAdd").onclick=()=>{const m=$("tMed").value,q=Math.round(num($("tQtd").value)),v=num($("tVal").value);if(!q||!v){$("tWarn").hidden=false;$("tWarn").textContent="Preencha a quantidade e o valor do milheiro.";return}items.push({k:"T",d:m,q,v,fi:FIA[m]||108});draw()};
-function draw(){$("items").innerHTML=items.length?items.map((it,i)=>`<div class="it"><div><div class="d">${it.k==="A"?esc(it.d):"Tijolo "+esc(it.d)}</div><div class="q">${it.k==="A"?`${it.q} carga${it.q>1?"s":""} de ${it.m3} m³ × ${brl(it.v)}`:`${nf(it.q)} un × ${brl(it.v)} o milheiro`}</div></div><div class="v">${brl(sub(it))}</div><button type="button" aria-label="Tirar" data-del="${i}">×</button></div>`).join(""):'<div class="empty">Nenhum produto ainda. Escolha acima e toque em Adicionar.</div>';sum()}
+let maisAberto=false;
+function draw(){const so=items.length&&items.every(i=>i.p);$("addBox").hidden=!!so&&!maisAberto;$("bMais").hidden=!$("addBox").hidden;
+$("items").innerHTML=items.length?items.map((it,i)=>`<div class="it"><div><div class="d">${it.k==="A"?esc(it.d):"Tijolo "+esc(it.d)}</div><div class="q">${it.k==="A"?`${it.q} carga${it.q>1?"s":""} de ${it.m3} m³ × ${brl(it.v)}`:`${nf(it.q)} un × ${brl(it.v)} o milheiro`}</div></div><div class="v">${brl(sub(it))}</div><button type="button" aria-label="Tirar" data-del="${i}">×</button></div>`).join(""):'<div class="empty">Nenhum produto ainda. Escolha acima e toque em Adicionar.</div>';sum()}
 $("items").addEventListener("click",e=>{const b=e.target.closest("[data-del]");if(b){items.splice(+b.dataset.del,1);draw()}});
 const sub=it=>it.k==="A"?it.q*it.v:it.q/1000*it.v;
 const AREIA_ON=!$("tA").closest(".seg").hidden;
@@ -240,7 +248,9 @@ const QRE=/(\d{1,3}(?:\.\d{3})+|\d+(?:[.,]\d+)?|um|uma|dois|duas|tr[eê]s|quatro
 const qtyT=(n,u)=>{u=(u||"").toLowerCase();if(/^mil|^k/.test(u))return Math.round(n*1000);return n<100?Math.round(n*1000):Math.round(n)};
 function medKey(a,b,c,ctx){a=a.replace(".",",");if(a==="9")a="09";let k=`${a}x${b}x${c}`;
  if(/^(4,3x8x18|5x9x19)$/.test(k))k+=" maciço";else if(/req|requeim/i.test(ctx)&&MIN[k+" REQ"]!==undefined)k+=" REQ";return MIN[k]!==undefined?k:null}
-function parseOrder(txt){const out={t:[],a:[],preco:null,semFrete:/sem\s+frete|frete\s+(gr[aá]tis|incluso)/i.test(txt),aviso:[]};
+const FRE=/(?<![a-zà-ú])frete\s*(?:de|:|=|-)?\s*(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/gi;
+const fval=x=>{x=String(x);const v=/,/.test(x)?parseFloat(x.replace(/\./g,"").replace(",",".")):/^\d+\.\d{1,2}$/.test(x)?parseFloat(x):parseFloat(x.replace(/\./g,""));return isFinite(v)?v:null};
+function parseOrder(txt){const fm=[...txt.matchAll(FRE)][0];txt=txt.replace(FRE,m=>" ".repeat(m.length));const out={t:[],a:[],preco:null,frete:fm?fval(fm[1]):null,semFrete:/sem\s+frete|frete\s+(gr[aá]tis|incluso)/i.test(txt),aviso:[]};
  out.preco=precoEm(txt);
  const LN=txt.split(/\n|;|\s\+\s/),QL=/^\s*(\d{1,3}(?:\.\d{3})+|\d+(?:[.,]\d+)?|um|uma|dois|duas|tr[eê]s|quatro|cinco|seis|sete|oito|nove|dez|doze|quinze|vinte|trinta)\s*(mil(?:heiros?)?|k|un(?:idades?)?|p[cç]s?|pe[cç]as?)?\s*(de\s+)?(tijol\w*)?\s*$/i;
  const viz=li=>{for(const j of[li-1,li+1,li-2,li+2]){const l=(LN[j]||"").trim();if(!l||/\d\s*[x×*]\s*\d/i.test(l))continue;const m=l.match(QL);if(m)return qtyT(pnum(m[1]),m[2]||"")}return null};
@@ -267,30 +277,38 @@ function applyOrder(txt){const o=parseOrder(txt),r=+$("reg").value;items=items.f
   if(!v){$("tMed").value=t.d;$("tQtd").value=t.q;$("tVal").value="";ch.push(`${esc(t.d)}: sem preço, digite na etapa 3`);return}
   items.push({k:"T",d:t.d,q:t.q,v,fi:FIA[t.d]||108,p:1,auto:!(t.v||o.preco)});ch.push(`<b>Pedido:</b> ${nf(t.q)} × ${esc(t.d)} a ${brl(v)}`)});
  o.a.forEach(a=>{const A=AREIAS[a.i];items.push({k:"A",d:A[0],m3:A[1],q:a.c,v:A[2],p:1});ch.push(`<b>Pedido:</b> ${a.c} carga${a.c>1?"s":""} de ${esc(A[0].toLowerCase())}`)});
- if(o.semFrete)$("fT").checked=false;
+ if(o.frete!=null){$("fV").value=o.frete;$("fV").dataset.auto="1";$("fT").checked=true;$("fA").checked=true}
+ else if($("fV").dataset.auto==="1"){$("fV").value="";$("fV").dataset.auto=""}
+ if(o.semFrete){$("fT").checked=false;$("fA").checked=false}
  if(o.t.length&&!o.a.length)setProd("T");else if(o.a.length&&!o.t.length)setProd("A");
  draw();return ch}
-function onPaste(){const txt=$("paste").value;
+function onPaste(){maisAberto=false;const txt=$("paste").value;
  const hitC=CID.filter(c=>norm(txt).includes(norm(c.n))).sort((a,b)=>b.n.length-a.n.length)[0];if(hitC&&$("city").querySelector(`option[value="${CSS.escape(hitC.n)}"],option:not([value])`)){const opt=[...$("city").options].find(o=>o.value===hitC.n);if(opt&&$("city").value!==hitC.n){$("city").value=hitC.n;cityChange()}}
  const cliTxt=txt.split(/\n/).map(l=>l.split(",").filter(s=>!PROD.test(s)&&!/^\s*(\d{1,3}(\.\d{3})+|\d{1,6})\s*(mil\w*|k|un\w*)?\s*$/i.test(s)).join(",")).join("\n");
  fillClient(parse(cliTxt));const ch=applyOrder(txt);if(ch.length)$("chips").insertAdjacentHTML("beforeend",ch.map(c=>`<span class="chip">${c}</span>`).join(""))}
 $("paste").addEventListener("input",onPaste);
 
-["fA","fT","fKm"].forEach(id=>$(id).addEventListener("input",sum));
+["fA","fT","fKm","fV"].forEach(id=>$(id).addEventListener("input",sum));$("fV").addEventListener("input",()=>{$("fV").dataset.auto=""});
 
 /* ---------- contas ---------- */
 function linhas(){const c=city(),L=[],calc=[];let tot=0;
  items.forEach(it=>{const s=sub(it);tot+=s;
   if(it.k==="A"){L.push([`${it.d} (carga de ${it.m3} metros)`,`${it.q} carga${it.q>1?"s":""}`,brl(it.v),s]);calc.push(`${it.q} × ${brl(it.v)} = ${brl(s)} (${brl(it.v/it.m3)} o metro)`)}
   else{L.push([`Tijolo cerâmico ${it.d}`,`${nf(it.q)} un`,brl(it.v)+" mil.",s]);calc.push(`${nf(it.q/1000)} milheiro(s) × ${brl(it.v)} = ${brl(s)}`)}});
- const ca=items.filter(i=>i.k==="A").reduce((a,i)=>a+i.q,0);
- if(ca&&$("fA").checked&&c.km){const vk=num($("fKm").value),kmT=c.km*2*ca,f=kmT*vk;tot+=f;L.push([`Frete areia até ${c.n} (${nf(c.km)} km, ida e volta${ca>1?", "+ca+" viagens":""})`,`${nf(kmT)} km`,brl(vk)+"/km",f]);calc.push(`frete: ${nf(c.km)} km × 2 × ${ca} viagem(ns) × ${brl(vk)} = ${brl(f)}`)}
+ const ca=items.filter(i=>i.k==="A").reduce((a,i)=>a+i.q,0),FL=[],FC=[];let fs=0,fsT=0;
+ if(ca&&$("fA").checked&&c.km){const vk=num($("fKm").value),kmT=c.km*2*ca,f=kmT*vk;fs+=f;FL.push([`Frete areia até ${c.n} (${nf(c.km)} km, ida e volta${ca>1?", "+ca+" viagens":""})`,`${nf(kmT)} km`,brl(vk)+"/km",f]);FC.push(`frete: ${nf(c.km)} km × 2 × ${ca} viagem(ns) × ${brl(vk)} = ${brl(f)}`)}
  const TI=items.filter(i=>i.k==="T");let occ=0;TI.forEach(i=>{occ+=Math.ceil(i.q/(PF[i.d]||84))/FIAT(i.d)});const fechada=occ>=0.999;
- if(TI.length&&$("fT").checked&&!fechada){const cc=CID.find(x=>x.n===c.n);let f=0,mil=0;TI.forEach(i=>{const fr=(cc&&cc.r)?cc:{f108:FRR[2][0],f72:FRR[2][1]};f+=i.q/1000*(FIAT(i.d)>=100?fr.f108:fr.f72);mil+=i.q/1000});
-  if(mil){tot+=f;L.push([`Frete tijolo até ${c.n} (por milheiro)`,`${nf(mil)} mil.`,brl(f/mil)+"/mil.",f]);calc.push(`frete tijolo: ${nf(mil)} milheiro(s) = ${brl(f)}`)}}
- return{L,calc,tot,c,occ,fechada,temT:TI.length>0,semKm:ca&&$("fA").checked&&!c.km&&c.n!=="Anápolis"}}
+ if(TI.length&&!fechada){const cc=CID.find(x=>x.n===c.n);let f=0,mil=0;TI.forEach(i=>{const fr=(cc&&cc.r)?cc:{f108:FRR[2][0],f72:FRR[2][1]};f+=i.q/1000*(FIAT(i.d)>=100?fr.f108:fr.f72);mil+=i.q/1000});fsT=f;
+  if(mil&&$("fT").checked){fs+=f;FL.push([`Frete tijolo até ${c.n} (por milheiro)`,`${nf(mil)} mil.`,brl(f/mil)+"/mil.",f]);FC.push(`frete tijolo: ${nf(mil)} milheiro(s) = ${brl(f)}`)}}
+ const fvT=$("fV").value.trim(),fv=fvT===""?null:num(fvT),cobra=(TI.length&&$("fT").checked)||(ca&&$("fA").checked);let fc=fs;
+ if(fv!=null&&cobra){fc=fv;FL.length=0;FC.length=0;if(fv>0){FL.push([`Frete até ${c.n}`,"1",brl(fv),fv]);FC.push(`frete combinado: ${brl(fv)}`)}}
+ tot+=fc;L.push(...FL);calc.push(...FC);
+ return{L,calc,tot,c,occ,fechada,fs,fsT,fv,cobra,temT:TI.length>0,semKm:ca&&$("fA").checked&&!c.km&&c.n!=="Anápolis"}}
 function cli(){return{nome:$("cNome").value.trim(),cpf:$("cCpf").value.trim(),tel:$("cTel").value.trim(),end:$("cEnd").value.trim()}}
-function sum(){const r=linhas(),k=cli();$("fNote").textContent=!r.temT?"Igual ao app Tijolos Tavares: carga fechada não paga frete; carga que não fecha paga à parte.":r.fechada?`Fecha a carga (${Math.round(r.occ*100)}% do caminhão): sem frete.`:`Carga em ${Math.round(r.occ*100)}% do caminhão: frete à parte`+($("fT").checked?".":" desmarcado.");$("tot").textContent=brl(r.tot);$("barL").textContent=(doc==="O"?"Orçamento":"Recibo")+(k.nome?" – "+k.nome.split(" ")[0]:"");
+function sum(){const r=linhas(),k=cli();
+ $("fTl").textContent=!r.temT?"Cobrar frete do tijolo à parte":r.fechada?"Cobrar frete do tijolo à parte (fecha a carga: sugerido sem frete)":`Cobrar frete do tijolo à parte · sugerido ${brl(r.fsT)}`;
+ $("fV").placeholder="Sugerido: "+brl(r.fs);
+ $("fSug").textContent=r.fv!=null?(r.cobra?`Valor digitado: ${brl(r.fv)}. Apague pra voltar ao sugerido (${brl(r.fs)}).`:"Frete desmarcado: o valor digitado não entra."):"";$("fNote").textContent=!r.temT?"Igual ao app Tijolos Tavares: carga fechada não paga frete; carga que não fecha paga à parte.":r.fechada?`Fecha a carga (${Math.round(r.occ*100)}% do caminhão): sem frete.`:`Carga em ${Math.round(r.occ*100)}% do caminhão: frete à parte`+($("fT").checked?".":" desmarcado.");$("tot").textContent=brl(r.tot);$("barL").textContent=(doc==="O"?"Orçamento":"Recibo")+(k.nome?" – "+k.nome.split(" ")[0]:"");
  $("s1s").textContent=k.nome?[k.nome,k.tel].filter(Boolean).join(" · "):"Cole o que tiver: nome, CPF, telefone, endereço";
  $("s2s").textContent=r.c.n+` · região ${r.c.r}`;
  $("s3s").textContent=items.length?`${items.length} produto${items.length>1?"s":""} · ${brl(r.tot)}`:"Medidas e quantidades";
@@ -371,7 +389,7 @@ $("bColar").onclick=colar;
 $("wapp").value=ls.get("wapp","business");$("wapp").onchange=()=>ls.set("wapp",$("wapp").value);
 function rota(){if(location.hash==="#colar"){history.replaceState(null,"",location.pathname);$("s1").open=true;setTimeout(colar,350)}}
 window.addEventListener("hashchange",rota);
-$("bNovo").onclick=()=>{items=[];["paste","cNome","cCpf","cTel","cEnd","obs"].forEach(id=>$(id).value="");$("chips").innerHTML="";$("prev").hidden=true;$("msg").style.display="none";$("city").value="Anápolis";cityChange();setDoc(doc);draw();document.querySelectorAll(".step").forEach((s,i)=>s.open=i===0);window.scrollTo({top:0,behavior:"smooth"})};
+$("bNovo").onclick=()=>{items=[];$("fV").value="";$("fV").dataset.auto="";$("fT").checked=true;$("fA").checked=true;maisAberto=false;["paste","cNome","cCpf","cTel","cEnd","obs"].forEach(id=>$(id).value="");$("chips").innerHTML="";$("prev").hidden=true;$("msg").style.display="none";$("city").value="Anápolis";cityChange();setDoc(doc);draw();document.querySelectorAll(".step").forEach((s,i)=>s.open=i===0);window.scrollTo({top:0,behavior:"smooth"})};
 
 $("dt").value=hoje();$("city").value="Anápolis";cityChange();aSel();tSel();setDoc("O");draw();rota();
 
