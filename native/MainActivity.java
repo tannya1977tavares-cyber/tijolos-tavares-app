@@ -11,6 +11,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(AgendaCelularPlugin.class);
         registerPlugin(AtualizadorPlugin.class);
         registerPlugin(WhatsEnviarPlugin.class);
+        registerPlugin(VozPlugin.class);
         super.onCreate(savedInstanceState);
         abrirOrcamento(getIntent());
     }

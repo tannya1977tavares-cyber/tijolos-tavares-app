@@ -5,7 +5,7 @@ raiz = pathlib.Path(__file__).resolve().parent.parent
 app = raiz / "android" / "app" / "src" / "main"
 pacote = app / "java" / "br" / "com" / "tijolostavares" / "app"
 pacote.mkdir(parents=True, exist_ok=True)
-for nome in ("AgendaCelularPlugin.java", "AtualizadorPlugin.java", "WhatsEnviarPlugin.java", "OrcamentoWidget.java", "MainActivity.java"):
+for nome in ("AgendaCelularPlugin.java", "AtualizadorPlugin.java", "WhatsEnviarPlugin.java", "VozPlugin.java", "OrcamentoWidget.java", "MainActivity.java"):
     shutil.copy(raiz / "native" / nome, pacote / nome)
 
 manifesto = app / "AndroidManifest.xml"
