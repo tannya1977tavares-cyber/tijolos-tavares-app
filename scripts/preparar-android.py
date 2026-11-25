@@ -15,6 +15,7 @@ perms = [
     "android.permission.WRITE_CALENDAR",
     "android.permission.POST_NOTIFICATIONS",
     "android.permission.REQUEST_INSTALL_PACKAGES",
+    "android.permission.RECORD_AUDIO",
 ]
 extra = "".join(f'    <uses-permission android:name="{p}" />\n' for p in perms if p not in txt)
 txt = txt.replace("</manifest>", extra + "</manifest>")
@@ -32,6 +33,9 @@ if "<queries>" not in txt:
     txt = txt.replace("<application", """<queries>
         <package android:name="com.whatsapp" />
         <package android:name="com.whatsapp.w4b" />
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
     </queries>
     <application""", 1)
 manifesto.write_text(txt, encoding="utf-8")

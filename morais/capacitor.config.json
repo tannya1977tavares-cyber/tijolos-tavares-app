@@ -1,8 +1,0 @@
-{
-  "appId": "br.com.moraistavares.orcamento",
-  "appName": "Orçamento Morais",
-  "webDir": "www",
-  "android": {
-    "backgroundColor": "#2A2722"
-  }
-}
