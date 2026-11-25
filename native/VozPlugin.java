@@ -190,7 +190,8 @@ public class VozPlugin extends Plugin {
             juntar(fim);
             avisar("");
             if (segurando) {
-                ui.postDelayed(() -> { if (segurando) { try { criar(); ouvir(); } catch (Exception ignored) {} } }, 150);
+                // continua ouvindo com o mesmo reconhecedor (recriar rápido demais derruba o serviço do Google: erro 11)
+                ui.postDelayed(() -> { if (segurando) { try { ouvir(); } catch (Exception e) { try { criar(); ouvir(); } catch (Exception ignored) {} } } }, 300);
             } else {
                 entregar();
             }
@@ -201,8 +202,13 @@ public class VozPlugin extends Plugin {
             if (!parcial.isEmpty()) { juntar(parcial); parcial = ""; }
             // pausa sem fala ou nada entendido: se o dedo ainda está no botão, volta a ouvir
             boolean pausa = erro == SpeechRecognizer.ERROR_NO_MATCH || erro == SpeechRecognizer.ERROR_SPEECH_TIMEOUT;
-            if (segurando && (pausa || erro == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || erro == SpeechRecognizer.ERROR_CLIENT) && ++tentativas <= 8) {
-                ui.postDelayed(() -> { if (segurando) { try { criar(); ouvir(); } catch (Exception ignored) {} } }, 250);
+            // 5 cliente, 8 ocupado, 10 muitos pedidos, 11 serviço desconectou: recria o reconhecedor e tenta de novo
+            boolean recriar = erro == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || erro == SpeechRecognizer.ERROR_CLIENT || erro == 10 || erro == 11;
+            if (segurando && (pausa || recriar) && ++tentativas <= 10) {
+                ui.postDelayed(() -> {
+                    if (!segurando) return;
+                    try { if (recriar || rec == null) criar(); ouvir(); } catch (Exception e) { try { criar(); ouvir(); } catch (Exception ignored) {} }
+                }, recriar ? 700 : 300);
                 return;
             }
             if (segurando) {
@@ -224,6 +230,10 @@ public class VozPlugin extends Plugin {
             case SpeechRecognizer.ERROR_RECOGNIZER_BUSY: return "Reconhecimento de voz ocupado";
             case SpeechRecognizer.ERROR_SERVER: return "Erro no serviço de voz do Google";
             case SpeechRecognizer.ERROR_SPEECH_TIMEOUT: return "Não ouvi nada";
+            case 10: return "Muitos pedidos de voz seguidos, tente de novo";
+            case 11: return "O serviço de voz do Google desconectou, tente de novo";
+            case 12:
+            case 13: return "Português não disponível no reconhecimento de voz deste celular";
             default: return "Erro de voz (código " + e + ")";
         }
     }
