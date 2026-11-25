@@ -124,8 +124,8 @@ input:focus,select:focus,textarea:focus,button:focus-visible,summary:focus-visib
 <div id="freteBox">
 <label class="chk"><input type="checkbox" id="fA" checked> Cobrar frete da areia</label>
 <div class="row"><div><label for="fKm">Valor por km rodado (R$)</label><input id="fKm" type="number" inputmode="decimal" value="4" min="0"></div><div></div></div>
-<label class="chk"><input type="checkbox" id="fT"> Cobrar frete do tijolo à parte</label>
-<p class="note">Tijolo: carga fechada não paga frete. Marque só quando a entrega não fecha uma carga.</p>
+<label class="chk"><input type="checkbox" id="fT" checked> Cobrar frete do tijolo à parte</label>
+<p class="note" id="fNote">Igual ao app Tijolos Tavares: carga fechada não paga frete; carga que não fecha paga à parte.</p>
 </div>
 <button class="btn w" type="button" data-next="s4">Continuar</button>
 </div></details>
@@ -156,6 +156,8 @@ const AREIAS=[["Areia média de rio",5,1100,"Fornecedor estava sem estoque da m�
 const MIN={"09x14x24":[1000,1100,1150],"09x14x24 REQ":[900,1000,1050],"09x19x19":[1000,1100,1150],"09x19x19 REQ":[900,1000,1050],"09x19x29":[1650,1700,1850],"11,5x19x19":[1450,1550,1650],"11,5x19x19 REQ":null,"11,5x19x29":[2000,2100,2200],"11,5x19x29 REQ":null,"14x19x19":[1600,1700,1800],"14x19x29":[2300,2500,2600],"19x19x19":[2200,2350,2500],"19x19x29":[3300,3500,3800],"4,3x8x18 maciço":[640,740,840],"5x9x19 maciço":[690,790,890]};
 const FIA={"09x19x29":72,"11,5x19x29":72,"11,5x19x29 REQ":72,"14x19x29":72,"19x19x29":72};
 const FRR={1:[30,50],2:[40,60],3:[50,75]};
+const PF={"09x14x24":84,"09x14x24 REQ":84,"09x19x19":84,"09x19x19 REQ":84,"09x19x29":84,"11,5x19x19":65,"11,5x19x19 REQ":65,"11,5x19x29":65,"11,5x19x29 REQ":65,"14x19x19":54,"14x19x29":54,"19x19x19":39,"19x19x29":39,"4,3x8x18 maciço":175,"5x9x19 maciço":151};
+const FIAT=m=>/maci/.test(m)?115:(FIA[m]||108);
 const CID=[["Anápolis",0,1,30,50],["Goianápolis",20],["Campo Limpo de Goiás",25],["Terezópolis de Goiás",25],["Ouro Verde de Goiás",30],["Nerópolis",33,2,30,60],["Abadiânia",35],["Damolândia",40],["Leopoldo de Bulhões",45],["Petrolina de Goiás",45],["Nova Veneza",45],["Goiânia",55,2,40,60],["Brazabrantes",55],["Pirenópolis",60],["Silvânia",60],["Aparecida de Goiânia",null,2,40,60],["Trindade",null,2,40,60],["Senador Canedo",null,2,40,60],["Goianira",null,2,40,60],["Santo Antônio de Goiás",null,2,50,100],["Corumbá IV",null,2,50,75],["Brasília",null,3,50,75],["Ceilândia",null,3,50,75],["Sol Nascente",null,3,50,75],["Guará",null,3,50,75],["Novo Gama",null,3,50,75],["26 de Setembro",null,3,50,75],["Padre Bernardo",null,3,90,130]].map(c=>({n:c[0],km:c[1],r:c[2]||null,f108:c[3]||null,f72:c[4]||null}));
 const $=id=>document.getElementById(id);
 const ls={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
@@ -202,8 +204,8 @@ function fillClient(o){
 $("city").innerHTML=`<optgroup label="Areia e tijolo (até 60 km)">${CID.filter(c=>c.km!=null).map(c=>`<option>${esc(c.n)}</option>`).join("")}</optgroup><optgroup label="Só tijolo">${CID.filter(c=>c.km==null).map(c=>`<option>${esc(c.n)}</option>`).join("")}</optgroup><option value="__outra">Outra cidade…</option>`;
 const city=()=>{const v=$("city").value;if(v==="__outra")return{n:$("cityName").value.trim()||"Outra cidade",km:num($("km").value),r:+$("reg").value,outra:true};const c=CID.find(x=>x.n===v);return{...c,km:$("km").value===""?null:num($("km").value),r:+$("reg").value}};
 function cityChange(){const v=$("city").value,c=CID.find(x=>x.n===v);$("cityOther").hidden=v!=="__outra";
- $("km").value=c&&c.km!=null?c.km:"";$("reg").value=c&&c.r?c.r:(c&&c.km!=null&&c.km<=35?1:2);
- const ns=[];if(c&&c.km==null)ns.push("Distância não cadastrada: preencha os km se for levar areia.");if(c&&!c.r)ns.push("Região do tijolo estimada pela distância: confira.");if(v==="__outra")ns.push("Preencha o nome, a distância e a região.");
+ $("km").value=c&&c.km!=null?c.km:"";$("reg").value=c&&c.r?c.r:2;
+ const ns=[];if(c&&c.km==null)ns.push("Distância não cadastrada: preencha os km se for levar areia.");if(c&&!c.r)ns.push("Cidade fora da tabela do tijolo: usa a região 2, igual ao app. Confira.");if(v==="__outra")ns.push("Preencha o nome, a distância e a região.");
  $("cityNote").textContent=ns.join(" ");if($("tMed").options.length)tSel();const rr=+$("reg").value;let ch=0;items.forEach(i=>{if(i.auto&&MIN[i.d]){i.v=MIN[i.d][rr-1];ch=1}});if(ch)draw();sum()}
 ["city"].forEach(id=>$(id).addEventListener("change",cityChange));["km","reg","cityName"].forEach(id=>$(id).addEventListener("input",sum));
 const num=v=>{const n=parseFloat(String(v).replace(",","."));return isFinite(n)?n:0};
@@ -231,7 +233,7 @@ const QRE=/(\d{1,3}(?:\.\d{3})+|\d+(?:[.,]\d+)?|um|uma|dois|duas|tr[eê]s|quatro
 const qtyT=(n,u)=>{u=(u||"").toLowerCase();if(/^mil|^k/.test(u))return Math.round(n*1000);return n<100?Math.round(n*1000):Math.round(n)};
 function medKey(a,b,c,ctx){a=a.replace(".",",");if(a==="9")a="09";let k=`${a}x${b}x${c}`;
  if(/^(4,3x8x18|5x9x19)$/.test(k))k+=" maciço";else if(/req|requeim/i.test(ctx)&&MIN[k+" REQ"]!==undefined)k+=" REQ";return MIN[k]!==undefined?k:null}
-function parseOrder(txt){const out={t:[],a:[],preco:null,frete:/frete/i.test(txt)&&!/sem\s+frete|frete\s+(gr[aá]tis|incluso)/i.test(txt),aviso:[]};
+function parseOrder(txt){const out={t:[],a:[],preco:null,semFrete:/sem\s+frete|frete\s+(gr[aá]tis|incluso)/i.test(txt),aviso:[]};
  const pre=txt.match(/(?:r\$|valor(?:\s+d[oa])?(?:\s+milheiro)?|pre[cç]o(?:\s+d[oa])?(?:\s+milheiro)?|milheiro\s+(?:a|por|de|=)?)\s*:?\s*(\d{1,3}(?:\.\d{3})+(?:,\d{2})?|\d{3,5}(?:,\d{2})?)/i);
  if(pre){const v=pnum(pre[1]);if(v>=300&&v<20000)out.preco=v}
  const LN=txt.split(/\n|;|\s\+\s/),QL=/^\s*(\d{1,3}(?:\.\d{3})+|\d+(?:[.,]\d+)?|um|uma|dois|duas|tr[eê]s|quatro|cinco|seis|sete|oito|nove|dez|doze|quinze|vinte|trinta)\s*(mil(?:heiros?)?|k|un(?:idades?)?|p[cç]s?|pe[cç]as?)?\s*(de\s+)?(tijol\w*)?\s*$/i;
@@ -258,7 +260,7 @@ function applyOrder(txt){const o=parseOrder(txt),r=+$("reg").value;items=items.f
   if(!v){$("tMed").value=t.d;$("tQtd").value=t.q;$("tVal").value="";ch.push(`${esc(t.d)}: sem preço, digite na etapa 3`);return}
   items.push({k:"T",d:t.d,q:t.q,v,fi:FIA[t.d]||108,p:1,auto:!(t.v||o.preco)});ch.push(`<b>Pedido:</b> ${nf(t.q)} × ${esc(t.d)} a ${brl(v)}`)});
  o.a.forEach(a=>{const A=AREIAS[a.i];items.push({k:"A",d:A[0],m3:A[1],q:a.c,v:A[2],p:1});ch.push(`<b>Pedido:</b> ${a.c} carga${a.c>1?"s":""} de ${esc(A[0].toLowerCase())}`)});
- if(o.frete&&o.t.length)$("fT").checked=true;
+ if(o.semFrete)$("fT").checked=false;
  if(o.t.length&&!o.a.length)setProd("T");else if(o.a.length&&!o.t.length)setProd("A");
  draw();return ch}
 function onPaste(){const txt=$("paste").value;
@@ -276,11 +278,12 @@ function linhas(){const c=city(),L=[],calc=[];let tot=0;
   else{L.push([`Tijolo cerâmico ${it.d}`,`${nf(it.q)} un`,brl(it.v)+" mil.",s]);calc.push(`${nf(it.q/1000)} milheiro(s) × ${brl(it.v)} = ${brl(s)}`)}});
  const ca=items.filter(i=>i.k==="A").reduce((a,i)=>a+i.q,0);
  if(ca&&$("fA").checked&&c.km){const vk=num($("fKm").value),kmT=c.km*2*ca,f=kmT*vk;tot+=f;L.push([`Frete areia até ${c.n} (${nf(c.km)} km, ida e volta${ca>1?", "+ca+" viagens":""})`,`${nf(kmT)} km`,brl(vk)+"/km",f]);calc.push(`frete: ${nf(c.km)} km × 2 × ${ca} viagem(ns) × ${brl(vk)} = ${brl(f)}`)}
- if($("fT").checked){const cc=CID.find(x=>x.n===c.n);let f=0,mil=0;items.filter(i=>i.k==="T").forEach(i=>{const fr=(cc&&cc.r)?cc:{f108:FRR[c.r][0],f72:FRR[c.r][1]};f+=i.q/1000*(i.fi===72?fr.f72:fr.f108);mil+=i.q/1000});
+ const TI=items.filter(i=>i.k==="T");let occ=0;TI.forEach(i=>{occ+=Math.ceil(i.q/(PF[i.d]||84))/FIAT(i.d)});const fechada=occ>=0.999;
+ if(TI.length&&$("fT").checked&&!fechada){const cc=CID.find(x=>x.n===c.n);let f=0,mil=0;TI.forEach(i=>{const fr=(cc&&cc.r)?cc:{f108:FRR[2][0],f72:FRR[2][1]};f+=i.q/1000*(FIAT(i.d)>=100?fr.f108:fr.f72);mil+=i.q/1000});
   if(mil){tot+=f;L.push([`Frete tijolo até ${c.n} (por milheiro)`,`${nf(mil)} mil.`,brl(f/mil)+"/mil.",f]);calc.push(`frete tijolo: ${nf(mil)} milheiro(s) = ${brl(f)}`)}}
- return{L,calc,tot,c,semKm:ca&&$("fA").checked&&!c.km&&c.n!=="Anápolis"}}
+ return{L,calc,tot,c,occ,fechada,temT:TI.length>0,semKm:ca&&$("fA").checked&&!c.km&&c.n!=="Anápolis"}}
 function cli(){return{nome:$("cNome").value.trim(),cpf:$("cCpf").value.trim(),tel:$("cTel").value.trim(),end:$("cEnd").value.trim()}}
-function sum(){const r=linhas(),k=cli();$("tot").textContent=brl(r.tot);$("barL").textContent=(doc==="O"?"Orçamento":"Recibo")+(k.nome?" – "+k.nome.split(" ")[0]:"");
+function sum(){const r=linhas(),k=cli();$("fNote").textContent=!r.temT?"Igual ao app Tijolos Tavares: carga fechada não paga frete; carga que não fecha paga à parte.":r.fechada?`Fecha a carga (${Math.round(r.occ*100)}% do caminhão): sem frete.`:`Carga em ${Math.round(r.occ*100)}% do caminhão: frete à parte`+($("fT").checked?".":" desmarcado.");$("tot").textContent=brl(r.tot);$("barL").textContent=(doc==="O"?"Orçamento":"Recibo")+(k.nome?" – "+k.nome.split(" ")[0]:"");
  $("s1s").textContent=k.nome?[k.nome,k.tel].filter(Boolean).join(" · "):"Cole o que tiver: nome, CPF, telefone, endereço";
  $("s2s").textContent=r.c.n+(r.c.km!=null?` · ${nf(r.c.km)} km`:"")+` · região ${r.c.r}`;
  $("s3s").textContent=items.length?`${items.length} produto${items.length>1?"s":""} · ${brl(r.tot)}`:"Areia e tijolo";
