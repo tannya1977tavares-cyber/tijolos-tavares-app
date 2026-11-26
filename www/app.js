@@ -267,7 +267,7 @@ async function procurarVersao() {
 
 /* ---------- desenho ---------- */
 const main = document.getElementById("main");
-let entregueAgora = null, comp = null, confirmar = null, aviso = "", cadastrando = null, buscaCli = "", fotos = {}, renderPendente = false, editando = null, msgCfg = "", carregando = null, carregamentoAberto = null, juntando = null, abertos = new Set(), reagendando = null;
+let entregueAgora = null, comp = null, confirmar = null, aviso = "", cadastrando = null, buscaCli = "", fotos = {}, renderPendente = false, editando = null, msgCfg = "", carregando = null, carregamentoAberto = null, juntando = null, abertos = new Set(), reagendando = null, trocandoCer = null;
 
 function renderSeguro() {
   const a = document.activeElement;
@@ -782,7 +782,7 @@ function cargaCard(c) {
     "<details" + (abrir ? " open" : "") + "><summary>Ver entregas, carregamento, motorista, quantidade carregada e fotos</summary>" + (adm ? carregamentoHtml(c) + viagemHtml(c) : "") + c.entregas.map((e, i) => entregaRow(e, c, i, { pag: adm, foto: true, carregar: true })).join("") +
       (adm ? grupos(c).map(g => '<div class="field" style="margin-bottom:8px"><label for="pg-' + c.id + "-" + g.idx[0] + '">Pagamento de ' + esc(g.nome) + '</label><select id="pg-' + c.id + "-" + g.idx[0] + '" data-pag="' + c.id + "|" + g.idx.join(",") + '">' + opts(PAGS, pagDe(c, g.idx[0])) + "</select></div>").join("") : "") + "</details>" +
     (rel ? '<button class="btn" data-act="rel" data-id="' + c.id + '" data-msg="rm-' + c.id + '">Relatório de viagem nº ' + String(rel.numero).padStart(4, "0") + ' (Excel)</button><p class="hint" id="rm-' + c.id + '"></p>' : "") +
-    reagendarHtml(c) +
+    reagendarHtml(c) + trocarCerHtml(c) +
     '<div class="grid2"><div class="field"><label for="st-' + c.id + '">Situação</label><select id="st-' + c.id + '" data-status="' + c.id + '">' + opts(STATUS, c.status) + "</select></div>" +
     '<div class="field"><label aria-hidden="true">&nbsp;</label><button class="btn danger" data-act="del" data-id="' + c.id + '">' + (confirmar === c.id ? "Toque de novo" : "Apagar carga") + "</button></div></div>" + recibosHtml(c) + "</section>";
 }
@@ -797,6 +797,39 @@ function reagendarHtml(c) {
     (dia && dia !== c.data ? '<h3 style="margin-top:10px">Já marcado em ' + esc(diaLabel(dia)) + "</h3>" + (doDia.length ? "<div>" + doDia.map(linhaMarca).join("") + "</div>" : '<p class="hint">Nenhuma outra entrega nesse dia.</p>') : "") +
     (junta ? '<p class="warnmsg">Esta carga está junta com outra na mesma viagem. Ao reagendar, ela sai da viagem e a outra continua em ' + esc(diaCurto(c.data)) + ".</p>" : "") +
     '<p class="err" id="rg-err"></p><div class="grid2"><button class="btn ghost" data-act="rg-x">Cancelar</button><button class="btn primary" data-act="rg-salvar" data-id="' + esc(c.id) + '"' + (dia && dia !== c.data ? "" : " disabled") + ">" + (dia && dia !== c.data ? "Mudar para " + esc(diaCurto(dia)) : "Escolha o dia") + "</button></div></div>";
+}
+/* trocar a cerâmica onde vai carregar: muda o fornecedor da carga e o preço de custo de cada entrega
+   (carga_admin.custos), que é o que o Financeiro usa pra saber quanto deve e pra quem. */
+const custosPara = (c, fid) => c.entregas.map(e => { const k = custoAtual(fid, e.medida); return k ? k.v : 0; });
+function trocarCerHtml(c) {
+  if (c.status === "Entregue" || CAD().fornecedores.length < 2) return "";
+  const T = trocandoCer && trocandoCer.id === c.id ? trocandoCer : null;
+  if (!T) return '<button class="btn full" data-act="tc-abrir" data-id="' + esc(c.id) + '">Trocar cerâmica</button>';
+  const novo = T.f && T.f !== c.ceramica ? T.f : null, adm = ADM();
+  let prev = "";
+  if (novo && adm) {
+    const a = resumo(c), b = resumo({ ...c, id: null, ceramica: novo }), gv = gastosViagem(c), dif = r2(b.custo - a.custo);
+    const sem = c.entregas.filter(e => { const C = D.cfg.custos || {}; return (C[novo] || {})[e.medida] == null; }).map(e => e.medida);
+    prev = '<div class="stats" style="margin-top:10px"><div class="stat"><div class="l">Pagar na fábrica</div><div class="v">' + brl(b.custo) + '</div><div class="hint">antes ' + brl(a.custo) + "</div></div>" +
+      '<div class="stat"><div class="l">Lucro antes da viagem</div><div class="v ' + (b.lucro >= 0 ? "pos" : "neg") + '">' + brl(b.lucro) + '</div><div class="hint">antes ' + brl(a.lucro) + "</div></div>" +
+      '<div class="stat" style="grid-column:1/-1"><div class="l">Líquido (com gastos)</div><div class="v ' + (b.lucro - gv >= 0 ? "pos" : "neg") + '">' + brl(b.lucro - gv) + '</div><div class="hint">' + (dif === 0 ? "Mesmo custo." : (dif > 0 ? "Paga " + brl2(dif) + " a mais" : "Paga " + brl2(-dif) + " a menos") + " na fábrica.") + "</div></div></div>" +
+      (sem.length ? '<p class="warnmsg">A ' + esc(forn(novo).nome) + " não tem custo cadastrado pra " + esc([...new Set(sem)].join(", ")) + ". Vai usar o custo da região. Dá pra cadastrar em Configurações › Fornecedores.</p>" : "");
+  }
+  return '<div class="carr-box"><h3>Trocar cerâmica</h3><p class="hint">Hoje vai carregar na ' + esc(forn(c.ceramica).nome) + ". Escolha onde vai carregar." + (adm ? " O valor a pagar na fábrica e o fornecedor no Financeiro mudam junto." : "") + "</p>" +
+    '<div class="btns" style="display:flex;flex-wrap:wrap;gap:8px">' + CAD().fornecedores.map(f => '<button class="btn' + ((T.f || c.ceramica) === f.id ? " primary" : "") + '" data-act="tc-f" data-f="' + esc(f.id) + '">' + esc(f.nome) + (f.id === c.ceramica ? " (atual)" : "") + "</button>").join("") + "</div>" +
+    prev + '<p class="err" id="tc-err"></p><div class="grid2" style="margin-top:10px"><button class="btn ghost" data-act="tc-x">Cancelar</button><button class="btn primary" data-act="tc-salvar" data-id="' + esc(c.id) + '"' + (novo ? "" : " disabled") + ">" + (novo ? "Trocar para " + esc(forn(novo).nome) : "Escolha a cerâmica") + "</button></div></div>";
+}
+async function trocarCeramica(id, fid) {
+  const c = acharCarga(id); if (!c) return false;
+  const r = await sb.from("cargas").update({ ceramica: fid }).eq("id", id);
+  if (r.error) return false;
+  /* o administrador já grava o custo novo; pra vendedor, o banco recalcula (gatilho cargas_custos) */
+  if (ADM()) {
+    const custos = custosPara(c, fid);
+    const u = await sb.from("carga_admin").upsert({ carga_id: id, custos }, { onConflict: "carga_id" });
+    if (u.error) return false;
+  }
+  await carregar(); return true;
 }
 async function reagendarCarga(id, novo) {
   const c = acharCarga(id); if (!c) return false;
@@ -1161,6 +1194,17 @@ main.addEventListener("click", async e => {
   }
   else if (a === "orc-del") { const id = b.dataset.id; if (confirmar !== "del" + id) { confirmar = "del" + id; render(); return; } confirmar = null; await sb.from("orcamentos").delete().eq("id", id); D.orcs = D.orcs.filter(x => x.id !== id); render(); }
   else if (a === "pc-prev" || a === "pc-next") { L.calPedido = addMes(L.calPedido, a.endsWith("next") ? 1 : -1); salvarLocal(); render(); }
+  else if (a === "tc-abrir") { const c = acharCarga(b.dataset.id); if (!c) return; trocandoCer = { id: c.id, f: null }; aviso = ""; render(); }
+  else if (a === "tc-x") { trocandoCer = null; render(); }
+  else if (a === "tc-f") { if (!trocandoCer) return; trocandoCer.f = b.dataset.f; render(); }
+  else if (a === "tc-salvar") {
+    const T = trocandoCer; if (!T || !T.f) return;
+    b.disabled = true; b.textContent = "Trocando…";
+    const ok = await trocarCeramica(T.id, T.f);
+    if (!ok) { b.disabled = false; b.textContent = "Trocar para " + forn(T.f).nome; avisoErro("tc-err", "Não deu pra trocar. Confira a internet e tente de novo."); return; }
+    trocandoCer = null; aviso = "Cerâmica trocada para " + forn(T.f).nome + "." + (ADM() ? " O valor a pagar na fábrica e o Financeiro já foram atualizados." : "");
+    salvarLocal(); render(); window.scrollTo(0, 0); sincronizarCelular();
+  }
   else if (a === "rg-abrir") { const c = acharCarga(b.dataset.id); if (!c) return; reagendando = { id: c.id, mes: c.data.slice(0, 7), dia: null }; aviso = ""; render(); }
   else if (a === "rg-x") { reagendando = null; render(); }
   else if (a === "rg-prev" || a === "rg-next") { if (!reagendando) return; reagendando.mes = addMes(reagendando.mes, a.endsWith("next") ? 1 : -1); render(); }
@@ -1193,7 +1237,7 @@ main.addEventListener("click", async e => {
   else if (a === "comp-x") { comp = null; render(); }
   else if (a === "pdf") gerarPdf(+b.dataset.g, b.dataset.tipo);
   else if (a === "ac-prev" || a === "ac-next") { L.calAgenda = addMes(L.calAgenda, a.endsWith("next") ? 1 : -1); salvarLocal(); render(); }
-  else if (a === "ac-dia") { L.diaAgenda = b.dataset.d; confirmar = null; aviso = ""; reagendando = null; salvarLocal(); render(); avisoAgendaCelular(); }
+  else if (a === "ac-dia") { L.diaAgenda = b.dataset.d; confirmar = null; aviso = ""; reagendando = null; trocandoCer = null; salvarLocal(); render(); avisoAgendaCelular(); }
   else if (a === "liberar-agenda") { try { const r = await Agenda.pedirPermissao(); if (r.ok) { document.getElementById("agenda-aviso").innerHTML = ""; sincronizarAgenda(); } } catch (err) {} }
   else if (a === "del") {
     if (confirmar !== b.dataset.id) { confirmar = b.dataset.id; render(); return; }
