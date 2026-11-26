@@ -802,12 +802,13 @@ function reagendarHtml(c) {
    (carga_admin.custos), que é o que o Financeiro usa pra saber quanto deve e pra quem. */
 const custosPara = (c, fid) => c.entregas.map(e => { const k = custoAtual(fid, e.medida); return k ? k.v : 0; });
 function trocarCerHtml(c) {
-  if (c.status === "Entregue" || CAD().fornecedores.length < 2) return "";
+  /* só o administrador troca a cerâmica (é ele quem acerta o pagamento com a fábrica) */
+  if (!ADM() || c.status === "Entregue" || CAD().fornecedores.length < 2) return "";
   const T = trocandoCer && trocandoCer.id === c.id ? trocandoCer : null;
   if (!T) return '<button class="btn full" data-act="tc-abrir" data-id="' + esc(c.id) + '">Trocar cerâmica</button>';
-  const novo = T.f && T.f !== c.ceramica ? T.f : null, adm = ADM();
+  const novo = T.f && T.f !== c.ceramica ? T.f : null;
   let prev = "";
-  if (novo && adm) {
+  if (novo) {
     const a = resumo(c), b = resumo({ ...c, id: null, ceramica: novo }), gv = gastosViagem(c), dif = r2(b.custo - a.custo);
     const sem = c.entregas.filter(e => { const C = D.cfg.custos || {}; return (C[novo] || {})[e.medida] == null; }).map(e => e.medida);
     prev = '<div class="stats" style="margin-top:10px"><div class="stat"><div class="l">Pagar na fábrica</div><div class="v">' + brl(b.custo) + '</div><div class="hint">antes ' + brl(a.custo) + "</div></div>" +
@@ -815,20 +816,17 @@ function trocarCerHtml(c) {
       '<div class="stat" style="grid-column:1/-1"><div class="l">Líquido (com gastos)</div><div class="v ' + (b.lucro - gv >= 0 ? "pos" : "neg") + '">' + brl(b.lucro - gv) + '</div><div class="hint">' + (dif === 0 ? "Mesmo custo." : (dif > 0 ? "Paga " + brl2(dif) + " a mais" : "Paga " + brl2(-dif) + " a menos") + " na fábrica.") + "</div></div></div>" +
       (sem.length ? '<p class="warnmsg">A ' + esc(forn(novo).nome) + " não tem custo cadastrado pra " + esc([...new Set(sem)].join(", ")) + ". Vai usar o custo da região. Dá pra cadastrar em Configurações › Fornecedores.</p>" : "");
   }
-  return '<div class="carr-box"><h3>Trocar cerâmica</h3><p class="hint">Hoje vai carregar na ' + esc(forn(c.ceramica).nome) + ". Escolha onde vai carregar." + (adm ? " O valor a pagar na fábrica e o fornecedor no Financeiro mudam junto." : "") + "</p>" +
+  return '<div class="carr-box"><h3>Trocar cerâmica</h3><p class="hint">Hoje vai carregar na ' + esc(forn(c.ceramica).nome) + ". Escolha onde vai carregar. O valor a pagar na fábrica e o fornecedor no Financeiro mudam junto.</p>" +
     '<div class="btns" style="display:flex;flex-wrap:wrap;gap:8px">' + CAD().fornecedores.map(f => '<button class="btn' + ((T.f || c.ceramica) === f.id ? " primary" : "") + '" data-act="tc-f" data-f="' + esc(f.id) + '">' + esc(f.nome) + (f.id === c.ceramica ? " (atual)" : "") + "</button>").join("") + "</div>" +
     prev + '<p class="err" id="tc-err"></p><div class="grid2" style="margin-top:10px"><button class="btn ghost" data-act="tc-x">Cancelar</button><button class="btn primary" data-act="tc-salvar" data-id="' + esc(c.id) + '"' + (novo ? "" : " disabled") + ">" + (novo ? "Trocar para " + esc(forn(novo).nome) : "Escolha a cerâmica") + "</button></div></div>";
 }
 async function trocarCeramica(id, fid) {
-  const c = acharCarga(id); if (!c) return false;
+  const c = acharCarga(id); if (!c || !ADM()) return false;
   const r = await sb.from("cargas").update({ ceramica: fid }).eq("id", id);
   if (r.error) return false;
-  /* o administrador já grava o custo novo; pra vendedor, o banco recalcula (gatilho cargas_custos) */
-  if (ADM()) {
-    const custos = custosPara(c, fid);
-    const u = await sb.from("carga_admin").upsert({ carga_id: id, custos }, { onConflict: "carga_id" });
-    if (u.error) return false;
-  }
+  const custos = custosPara(c, fid);
+  const u = await sb.from("carga_admin").upsert({ carga_id: id, custos }, { onConflict: "carga_id" });
+  if (u.error) return false;
   await carregar(); return true;
 }
 async function reagendarCarga(id, novo) {
@@ -1202,7 +1200,7 @@ main.addEventListener("click", async e => {
     b.disabled = true; b.textContent = "Trocando…";
     const ok = await trocarCeramica(T.id, T.f);
     if (!ok) { b.disabled = false; b.textContent = "Trocar para " + forn(T.f).nome; avisoErro("tc-err", "Não deu pra trocar. Confira a internet e tente de novo."); return; }
-    trocandoCer = null; aviso = "Cerâmica trocada para " + forn(T.f).nome + "." + (ADM() ? " O valor a pagar na fábrica e o Financeiro já foram atualizados." : "");
+    trocandoCer = null; aviso = "Cerâmica trocada para " + forn(T.f).nome + ". O valor a pagar na fábrica e o Financeiro já foram atualizados.";
     salvarLocal(); render(); window.scrollTo(0, 0); sincronizarCelular();
   }
   else if (a === "rg-abrir") { const c = acharCarga(b.dataset.id); if (!c) return; reagendando = { id: c.id, mes: c.data.slice(0, 7), dia: null }; aviso = ""; render(); }
